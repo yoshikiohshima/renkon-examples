@@ -5,42 +5,23 @@
   </head>
   <body>
     <div id="renkon">
-      <link rel="stylesheet" href="/bridge/session.css" />
+      <link rel="stylesheet" href="./bridge/session.css" />
       <script type="reactive">
         const bridgeModule = import("../bridge/bridge.js");
-        const preactModule = import('https://unpkg.com/htm/preact/standalone.module.js');
+        const preactModule = import('../preact.standalone.module.js');
         const html = preactModule.html;
         const render = preactModule.render;
         const entries = document.querySelector("#entries");
 
-        const newButton = Events.change(((evt) => "new")(Events.click("newSession")));
+        window.top.postMessage({event: "appReady"});
 
-        const sessionChosen = Events.receiver();
-        const initialSpace = bridgeModule.goIntoSpace();
+        const sessionSpec = (() => document.querySelector("#sessionName").textContent)(Events.click("setSessionButton"));
 
-        const newSessionRequest = ((trigger) => {
-          return {session: trigger.session || "new"};
-        })(Events.or(newButton, sessionChosen));
-
-        const mySession = Behaviors.collect(initialSpace, 
-          Events.change(newSessionRequest),
-          (current, request) => {
-            if (request.session === "new") {
-              return bridgeModule.createNewSession();
-            }
-            if (request.session) {
-              return bridgeModule.createNewSession(request.session);
-            }
-            if (current.space === request.space && current.session === request.session) {return current;}
-            return request;
+        const socket = Behaviors.collect(undefined, Events.change(sessionSpec), (old, sessionSpec) => {
+          if (old) {
+            old.close();
           }
-        );
-
-        const socket = Behaviors.collect(null, Events.change(mySession), (a, b) => {
-          if (a) {
-            a.close();
-          }
-          const w = new bridgeModule.BridgeConnection();
+          const w = new bridgeModule.BridgeConnection(sessionSpec);
           w.setupDataWS();
           return w;
         });
@@ -58,36 +39,72 @@
 
         const audioEnabled = Behaviors.collect(true, muteButton, (a, b) => !a);
 
-        const sessionChooser = (evt) => {
-          console.log(evt.target.getAttribute("data"));
-          Events.send(sessionChosen, {sessionChosen: true, session: evt.target.getAttribute("data")});
-        };
-
-        const localMedia = ((bridgeModule) => {
-          return bridgeModule.initLocalMedia().then((media) => {
+        const localMedia = ((bridgeModule, sessionSpec) => {
+          return bridgeModule.initLocalMedia(sessionSpec).then((media) => {
             media.ondevicechange = () => Events.send(deviceChange, media.audioDevices);
             return media;
           });
-        })(bridgeModule, Events.click("logo"));
+        })(bridgeModule, sessionSpec, Events.click("logo"));
 
         const formatTime = bridgeModule.formatTime;
         const ev = Events.next(bridge());
 
         const transcript = ev.value.entries.map(entryMapper);
 
-        const newEntries = Behaviors.collect({length: 0, list: []}, ev,
+        const newEntries = Events.collect({length: 0, list: []}, ev,
           (current, ev) => {
-            const entries = ev.value?.entries;
-            const length = entries?.length || 0;
-            if (length <= current.length) {return current;}
-            return {length, list: entries.slice(current.length)};
+              const entries = ev.value?.entries;
+              const length = entries?.length || 0;
+              if (length <= current.length) {return current;}
+              return {length, list: entries.slice(current.length), trackID: ev.value?.activeSession?.Tracks?.[0]?.ID};
         });
 
-        const messenger = ((newEntries) => {
-          Events.message("bridge", newEntries);
-        })(newEntries);
+        const messenger = ((newEntries, sessionSpec) => {
+            const list = newEntries.list;
+            const trackID = newEntries.trackID;
+            if (!list || list.length !== 1) {return;}
 
-        const sessionsHTML = sessionsMapper(ev.value);
+            const words = list[0].words.map(w => w.word);
+            const wordTime = list[0].words[list[0].words.length - 1].start;
+            console.log("sending newEntries", words.join(""));
+
+            let tester = (words) => {
+                for (const word of words) {
+                    if (/hello/i.test(words)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            if (tester(words)) {
+                console.log("do something", trackID);
+                if (trackID) {
+                    const body = {
+                        "type": "transcription",
+                        "start": Math.floor(wordTime + 5000),
+                        "end": Math.floor(wordTime + 5000),
+                        "data": {
+                            "segments": [{
+                                "text": "hello world",
+                                "words": [
+                                    {"word": "hello"},
+                                    {"word": " world"}
+                                ]
+                            }]
+                        }
+                    };
+                    fetch(
+                        `${sessionSpec}/tracks/${trackID}`,
+                        {
+                            method: "POST",
+                            mode: "no-cors",
+                            body: JSON.stringify(body)
+                        }
+                    )
+                }
+            }
+            Events.message("renkonMessage", {sentence: words.join("")});
+        })(newEntries, sessionSpec);
 
         const entryMapper = ((html, formatTime) => (attrs) => {return html`
           <div class="entry" data-start="${attrs.span.start}" data-end="${attrs.span.end}">
@@ -110,20 +127,7 @@
             </div>
           </div>`})(html, formatTime);
 
-          const sessionsMapper = ((html, sessionChooser) => (attrs) => {
-            const sessionsView = attrs.sessions?.map((s) => {
-              const active = attrs.activeSession?.ID === s.ID;
-              return html`
-                <div class="px-6 py-2 ${active ? "bg-gray-800" : ""}">
-                  <span onClick=${sessionChooser} data="${s.ID}">${new Date(s.Start).toLocaleString()}</span>
-                </div>`;
-              });
-              return html`<div>${sessionsView}</div>`;
-            })(html, sessionChooser);
-
         render(transcript, entries);
-
-        render(sessionsHTML, document.querySelector("#sessions"));
 
         const scroll = (() => {
           const elt = document.getElementById("entries");
@@ -156,16 +160,10 @@
         <div id="sidebar" class="w-64 h-screen border-r-2 border-gray-800">
           <div class="flex flex-wrap align-center px-6 py-4">
             <h1 id="logo" class="py-1 text-xl font-bold grow">bridge</h1>
-            <a id="newSession" class="py-2">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                   class="feather feather-plus-square">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <line x1="12" y1="8" x2="12" y2="16"></line>
-                <line x1="8" y1="12" x2="16" y2="12"></line>
-              </svg>
-            </a>
+          </div>
+          <div id="sessionNameHolder">
+            <div contentEditable id="sessionName">https://substrate.home.arpa/bridge;sessions=sp-01J343NFDMW9B5XG6S6XJZDNE8;id=cqcqi10ri6qs739svkk1</div>
+            <button id="setSessionButton">Set</button>
           </div>
           <div id="sessions"></div>
         </div>
@@ -184,8 +182,7 @@
       </div>
     </div>
     <script type="module">
-      import {view} from "./dist/renkon.js";
-      view();
+      import("./renkon.js").then((mod) => mod.view());
     </script>
   </body>
 </html>

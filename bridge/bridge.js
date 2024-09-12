@@ -2,26 +2,12 @@ import { Session as SFU } from "./webrtc-session.js";
 import { LocalMedia } from "./localmedia.js";
 import { CBOR } from "./cbor.js";
 
-function webSocketURL() {
-  const loc = window.location.toString();
-  const index = loc.indexOf(";");
-  let semi = loc.slice(index);
-  if (semi.endsWith("/")) {
-    semi = semi.slice(0, semi.length - 1);
-  }
-  let u = new URL(`ws://substrate.home.arpa/bridge2${semi}`);
-  if (window.location.protocol == "https:" || true) {
-    u.protocol = "wss:";
-  }
-  return u.toString();
-}
-
 let micSess = null;
 let screenSess = null;
 let sfuSess = null;
-const initSession = () => {
+const initSession = (sessionSpec) => {
   closeSession();
-  sfuSess = new SFU(`${webSocketURL()}/sfu`);
+  sfuSess = new SFU(`${sessionSpec}/sfu`);
   console.log("new SFU", sfuSess);
   sfuSess.onclose = (evt) => console.log("Websocket has closed");
   sfuSess.onerror = (evt) => console.log("ERROR: " + evt.data);
@@ -41,7 +27,7 @@ export function closeSession() {
 }
 
 let localMedia = null;
-export const initLocalMedia = () => {
+export const initLocalMedia = (sessionSpec) => {
   if (localMedia) {
     localMedia.close();
     localMedia = null;
@@ -54,7 +40,7 @@ export const initLocalMedia = () => {
     videoSource: false,
     onstreamchange: (stream) => {
       if (!micSess) {
-        micSess = initSession();
+        micSess = initSession(sessionSpec);
       }
       micSess.setStream(stream);
     },
@@ -117,11 +103,12 @@ export const shareScreen = () => {
 };
 
 export class BridgeConnection {
-  constructor() {
+  constructor(sessionURL) {
     this.viewModel = {};
     this.onmessageResolver = null;
     this.onmessagePromise = null;
-    this.dataWS = null;
+      this.dataWS = null;
+      this.sessionURL = sessionURL;
   }
 
   close() {
@@ -143,7 +130,7 @@ export class BridgeConnection {
     this.onmessagePromise = new Promise((resolve, reject) => {
       this.onmessageResolver = resolve;
     });
-    this.dataWS = new WebSocket(`${webSocketURL()}/data`);
+    this.dataWS = new WebSocket(`${this.sessionURL}/data`);
     console.log("setupDataWS", this.dataWS);
     this.dataWS.binaryType = "arraybuffer";
     this.dataWS.onmessage = (e) => {
@@ -305,56 +292,4 @@ function sessionData(url) {
     }
   }
   return {space, session};
-}
-
-export function goIntoSpace() {
-  const session = sessionData(window.location.toString());
-  if (session.space) {
-    return Promise.resolve(session);
-  }
-
-  return fetch("https://substrate.home.arpa/bridge2").then((resp) => {
-    let newSession = sessionData(resp.url);
-    
-    let index = resp.url.indexOf(";");
-    const semi = resp.url.slice(index);
- 
-    const loc = window.location.toString();
-    index = loc.indexOf(";");
-    const nonSemi = index < 0 ? loc : loc.slice(0, index);
-    const url = nonSemi + semi;
-
-    history.pushState({}, "bridge", url);
-    return newSession;
-  });
-}
-
-export function createNewSession(optSessionName) {
-  const loc = window.location.toString();
-  const locSession = sessionData(loc);
-  if (!locSession.space) {
-    // there is no sessions (space) yet
-    return Promise.resolve(false);
-  }
-
-  const semiIndex = loc.indexOf(";");
-  const nonSemi = loc.slice(0, semiIndex);
-  if (!optSessionName) {
-    const url = `https://substrate.home.arpa/bridge2${locSession.space}/sessions/new`;
-
-    return fetch(url).then((resp) => {
-      const newSession = sessionData(resp.url);
-      const url = `${nonSemi}${newSession.space}/sessions/${newSession.session}`;
-
-      history.pushState({}, "bridge", url);
-      return newSession;
-    });
-  } else {
-    if (optSessionName === locSession.session) {
-      return Promise.resolve(locSession);
-    }
-    const url = `${nonSemi}${locSession.space}/sessions/${optSessionName}`;
-    history.pushState({}, "bridge", url);
-    return Promise.resolve({space: locSession.space, session: optSessionName});
-  }
 }
