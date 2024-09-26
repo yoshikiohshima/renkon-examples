@@ -15039,9 +15039,9 @@ let Parser$1 = class Parser {
   Run a full parse, returning the resulting tree.
   */
   parse(input, fragments, ranges) {
-    let parse3 = this.startParse(input, fragments, ranges);
+    let parse4 = this.startParse(input, fragments, ranges);
     for (; ; ) {
-      let done = parse3.advance();
+      let done = parse4.advance();
       if (done)
         return done;
     }
@@ -16480,8 +16480,12 @@ function bracketedAligned(context) {
     let next = tree.childAfter(pos);
     if (!next || next == last)
       return null;
-    if (!next.type.isSkipped)
-      return next.from < lineEnd ? openToken : null;
+    if (!next.type.isSkipped) {
+      if (next.from >= lineEnd)
+        return null;
+      let space = /^ */.exec(openLine.text.slice(openToken.to - openLine.from))[0].length;
+      return { from: openToken.from, to: openToken.to + space };
+    }
     pos = next.to;
   }
 }
@@ -17598,7 +17602,7 @@ class HistoryState {
     let done = this.done, lastEvent = done[done.length - 1];
     if (lastEvent && lastEvent.changes && !lastEvent.changes.empty && event.changes && (!userEvent || joinableUserEvent.test(userEvent)) && (!lastEvent.selectionsAfter.length && time - this.prevTime < config2.newGroupDelay && config2.joinToEvent(tr, isAdjacent(lastEvent.changes, event.changes)) || // For compose (but not compose.start) events, always join with previous event
     userEvent == "input.type.compose")) {
-      done = updateBranch(done, done.length - 1, config2.minDepth, new HistEvent(event.changes.compose(lastEvent.changes), conc(event.effects, lastEvent.effects), lastEvent.mapped, lastEvent.startSelection, none$1));
+      done = updateBranch(done, done.length - 1, config2.minDepth, new HistEvent(event.changes.compose(lastEvent.changes), conc(StateEffect.mapEffects(event.effects, lastEvent.changes), lastEvent.effects), lastEvent.mapped, lastEvent.startSelection, none$1));
     } else {
       done = updateBranch(done, done.length, config2.minDepth, event);
     }
@@ -17856,15 +17860,21 @@ const selectLine = ({ state, dispatch: dispatch2 }) => {
 };
 const selectParentSyntax = ({ state, dispatch: dispatch2 }) => {
   let selection = updateSel(state.selection, (range) => {
-    var _a3;
-    let stack = syntaxTree(state).resolveStack(range.from, 1);
+    let tree = syntaxTree(state), stack = tree.resolveStack(range.from, 1);
+    if (range.empty) {
+      let stackBefore = tree.resolveStack(range.from, -1);
+      if (stackBefore.node.from >= stack.node.from && stackBefore.node.to <= stack.node.to)
+        stack = stackBefore;
+    }
     for (let cur2 = stack; cur2; cur2 = cur2.next) {
       let { node } = cur2;
-      if ((node.from < range.from && node.to >= range.to || node.to > range.to && node.from <= range.from) && ((_a3 = node.parent) === null || _a3 === void 0 ? void 0 : _a3.parent))
+      if ((node.from < range.from && node.to >= range.to || node.to > range.to && node.from <= range.from) && cur2.next)
         return EditorSelection.range(node.to, node.from);
     }
     return range;
   });
+  if (selection.eq(state.selection))
+    return false;
   dispatch2(setSel(state, selection));
   return true;
 };
@@ -19486,9 +19496,10 @@ function insertCompletionText(state, text, from, to) {
   return Object.assign(Object.assign({}, state.changeByRange((range) => {
     if (range != main && from != to && state.sliceDoc(range.from + fromOff, range.from + toOff) != state.sliceDoc(from, to))
       return { range };
+    let lines = state.toText(text);
     return {
-      changes: { from: range.from + fromOff, to: to == main.from ? range.to : range.from + toOff, insert: text },
-      range: EditorSelection.cursor(range.from + fromOff + text.length)
+      changes: { from: range.from + fromOff, to: to == main.from ? range.to : range.from + toOff, insert: lines },
+      range: EditorSelection.cursor(range.from + fromOff + lines.length)
     };
   })), { scrollIntoView: true, userEvent: "input.complete" });
 }
@@ -20908,6 +20919,7 @@ function autocompletion(config2 = {}) {
 }
 const completionKeymap = [
   { key: "Ctrl-Space", run: startCompletion },
+  { mac: "Alt-`", run: startCompletion },
   { key: "Escape", run: closeCompletion },
   { key: "ArrowDown", run: /* @__PURE__ */ moveCompletionSelection(true) },
   { key: "ArrowUp", run: /* @__PURE__ */ moveCompletionSelection(false) },
@@ -26807,6 +26819,742 @@ Parser2.acorn = {
   lineBreakG,
   nonASCIIwhitespace
 };
+function parse3(input, options) {
+  return Parser2.parse(input, options);
+}
+function parseExpressionAt2(input, pos, options) {
+  return Parser2.parseExpressionAt(input, pos, options);
+}
+function tokenizer2(input, options) {
+  return Parser2.tokenizer(input, options);
+}
+const acorn = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  Node,
+  Parser: Parser2,
+  Position,
+  SourceLocation,
+  TokContext,
+  Token,
+  TokenType,
+  defaultOptions,
+  getLineInfo,
+  isIdentifierChar,
+  isIdentifierStart,
+  isNewLine,
+  keywordTypes: keywords,
+  lineBreak,
+  lineBreakG,
+  nonASCIIwhitespace,
+  parse: parse3,
+  parseExpressionAt: parseExpressionAt2,
+  tokContexts: types,
+  tokTypes: types$1,
+  tokenizer: tokenizer2,
+  version
+}, Symbol.toStringTag, { value: "Module" }));
+function getDefaultExportFromCjs(x) {
+  return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
+}
+function getAugmentedNamespace(n) {
+  if (n.__esModule) return n;
+  var f = n.default;
+  if (typeof f == "function") {
+    var a = function a2() {
+      if (this instanceof a2) {
+        return Reflect.construct(f, arguments, this.constructor);
+      }
+      return f.apply(this, arguments);
+    };
+    a.prototype = f.prototype;
+  } else a = {};
+  Object.defineProperty(a, "__esModule", { value: true });
+  Object.keys(n).forEach(function(k) {
+    var d = Object.getOwnPropertyDescriptor(n, k);
+    Object.defineProperty(a, k, d.get ? d : {
+      enumerable: true,
+      get: function() {
+        return n[k];
+      }
+    });
+  });
+  return a;
+}
+var acornJsx = { exports: {} };
+var xhtml = {
+  quot: '"',
+  amp: "&",
+  apos: "'",
+  lt: "<",
+  gt: ">",
+  nbsp: " ",
+  iexcl: "¡",
+  cent: "¢",
+  pound: "£",
+  curren: "¤",
+  yen: "¥",
+  brvbar: "¦",
+  sect: "§",
+  uml: "¨",
+  copy: "©",
+  ordf: "ª",
+  laquo: "«",
+  not: "¬",
+  shy: "­",
+  reg: "®",
+  macr: "¯",
+  deg: "°",
+  plusmn: "±",
+  sup2: "²",
+  sup3: "³",
+  acute: "´",
+  micro: "µ",
+  para: "¶",
+  middot: "·",
+  cedil: "¸",
+  sup1: "¹",
+  ordm: "º",
+  raquo: "»",
+  frac14: "¼",
+  frac12: "½",
+  frac34: "¾",
+  iquest: "¿",
+  Agrave: "À",
+  Aacute: "Á",
+  Acirc: "Â",
+  Atilde: "Ã",
+  Auml: "Ä",
+  Aring: "Å",
+  AElig: "Æ",
+  Ccedil: "Ç",
+  Egrave: "È",
+  Eacute: "É",
+  Ecirc: "Ê",
+  Euml: "Ë",
+  Igrave: "Ì",
+  Iacute: "Í",
+  Icirc: "Î",
+  Iuml: "Ï",
+  ETH: "Ð",
+  Ntilde: "Ñ",
+  Ograve: "Ò",
+  Oacute: "Ó",
+  Ocirc: "Ô",
+  Otilde: "Õ",
+  Ouml: "Ö",
+  times: "×",
+  Oslash: "Ø",
+  Ugrave: "Ù",
+  Uacute: "Ú",
+  Ucirc: "Û",
+  Uuml: "Ü",
+  Yacute: "Ý",
+  THORN: "Þ",
+  szlig: "ß",
+  agrave: "à",
+  aacute: "á",
+  acirc: "â",
+  atilde: "ã",
+  auml: "ä",
+  aring: "å",
+  aelig: "æ",
+  ccedil: "ç",
+  egrave: "è",
+  eacute: "é",
+  ecirc: "ê",
+  euml: "ë",
+  igrave: "ì",
+  iacute: "í",
+  icirc: "î",
+  iuml: "ï",
+  eth: "ð",
+  ntilde: "ñ",
+  ograve: "ò",
+  oacute: "ó",
+  ocirc: "ô",
+  otilde: "õ",
+  ouml: "ö",
+  divide: "÷",
+  oslash: "ø",
+  ugrave: "ù",
+  uacute: "ú",
+  ucirc: "û",
+  uuml: "ü",
+  yacute: "ý",
+  thorn: "þ",
+  yuml: "ÿ",
+  OElig: "Œ",
+  oelig: "œ",
+  Scaron: "Š",
+  scaron: "š",
+  Yuml: "Ÿ",
+  fnof: "ƒ",
+  circ: "ˆ",
+  tilde: "˜",
+  Alpha: "Α",
+  Beta: "Β",
+  Gamma: "Γ",
+  Delta: "Δ",
+  Epsilon: "Ε",
+  Zeta: "Ζ",
+  Eta: "Η",
+  Theta: "Θ",
+  Iota: "Ι",
+  Kappa: "Κ",
+  Lambda: "Λ",
+  Mu: "Μ",
+  Nu: "Ν",
+  Xi: "Ξ",
+  Omicron: "Ο",
+  Pi: "Π",
+  Rho: "Ρ",
+  Sigma: "Σ",
+  Tau: "Τ",
+  Upsilon: "Υ",
+  Phi: "Φ",
+  Chi: "Χ",
+  Psi: "Ψ",
+  Omega: "Ω",
+  alpha: "α",
+  beta: "β",
+  gamma: "γ",
+  delta: "δ",
+  epsilon: "ε",
+  zeta: "ζ",
+  eta: "η",
+  theta: "θ",
+  iota: "ι",
+  kappa: "κ",
+  lambda: "λ",
+  mu: "μ",
+  nu: "ν",
+  xi: "ξ",
+  omicron: "ο",
+  pi: "π",
+  rho: "ρ",
+  sigmaf: "ς",
+  sigma: "σ",
+  tau: "τ",
+  upsilon: "υ",
+  phi: "φ",
+  chi: "χ",
+  psi: "ψ",
+  omega: "ω",
+  thetasym: "ϑ",
+  upsih: "ϒ",
+  piv: "ϖ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  zwnj: "‌",
+  zwj: "‍",
+  lrm: "‎",
+  rlm: "‏",
+  ndash: "–",
+  mdash: "—",
+  lsquo: "‘",
+  rsquo: "’",
+  sbquo: "‚",
+  ldquo: "“",
+  rdquo: "”",
+  bdquo: "„",
+  dagger: "†",
+  Dagger: "‡",
+  bull: "•",
+  hellip: "…",
+  permil: "‰",
+  prime: "′",
+  Prime: "″",
+  lsaquo: "‹",
+  rsaquo: "›",
+  oline: "‾",
+  frasl: "⁄",
+  euro: "€",
+  image: "ℑ",
+  weierp: "℘",
+  real: "ℜ",
+  trade: "™",
+  alefsym: "ℵ",
+  larr: "←",
+  uarr: "↑",
+  rarr: "→",
+  darr: "↓",
+  harr: "↔",
+  crarr: "↵",
+  lArr: "⇐",
+  uArr: "⇑",
+  rArr: "⇒",
+  dArr: "⇓",
+  hArr: "⇔",
+  forall: "∀",
+  part: "∂",
+  exist: "∃",
+  empty: "∅",
+  nabla: "∇",
+  isin: "∈",
+  notin: "∉",
+  ni: "∋",
+  prod: "∏",
+  sum: "∑",
+  minus: "−",
+  lowast: "∗",
+  radic: "√",
+  prop: "∝",
+  infin: "∞",
+  ang: "∠",
+  and: "∧",
+  or: "∨",
+  cap: "∩",
+  cup: "∪",
+  "int": "∫",
+  there4: "∴",
+  sim: "∼",
+  cong: "≅",
+  asymp: "≈",
+  ne: "≠",
+  equiv: "≡",
+  le: "≤",
+  ge: "≥",
+  sub: "⊂",
+  sup: "⊃",
+  nsub: "⊄",
+  sube: "⊆",
+  supe: "⊇",
+  oplus: "⊕",
+  otimes: "⊗",
+  perp: "⊥",
+  sdot: "⋅",
+  lceil: "⌈",
+  rceil: "⌉",
+  lfloor: "⌊",
+  rfloor: "⌋",
+  lang: "〈",
+  rang: "〉",
+  loz: "◊",
+  spades: "♠",
+  clubs: "♣",
+  hearts: "♥",
+  diams: "♦"
+};
+const require$$1 = /* @__PURE__ */ getAugmentedNamespace(acorn);
+(function(module) {
+  const XHTMLEntities = xhtml;
+  const hexNumber = /^[\da-fA-F]+$/;
+  const decimalNumber = /^\d+$/;
+  const acornJsxMap = /* @__PURE__ */ new WeakMap();
+  function getJsxTokens(acorn2) {
+    acorn2 = acorn2.Parser.acorn || acorn2;
+    let acornJsx2 = acornJsxMap.get(acorn2);
+    if (!acornJsx2) {
+      const tt = acorn2.tokTypes;
+      const TokContext3 = acorn2.TokContext;
+      const TokenType3 = acorn2.TokenType;
+      const tc_oTag = new TokContext3("<tag", false);
+      const tc_cTag = new TokContext3("</tag", false);
+      const tc_expr = new TokContext3("<tag>...</tag>", true, true);
+      const tokContexts = {
+        tc_oTag,
+        tc_cTag,
+        tc_expr
+      };
+      const tokTypes = {
+        jsxName: new TokenType3("jsxName"),
+        jsxText: new TokenType3("jsxText", { beforeExpr: true }),
+        jsxTagStart: new TokenType3("jsxTagStart", { startsExpr: true }),
+        jsxTagEnd: new TokenType3("jsxTagEnd")
+      };
+      tokTypes.jsxTagStart.updateContext = function() {
+        this.context.push(tc_expr);
+        this.context.push(tc_oTag);
+        this.exprAllowed = false;
+      };
+      tokTypes.jsxTagEnd.updateContext = function(prevType) {
+        let out = this.context.pop();
+        if (out === tc_oTag && prevType === tt.slash || out === tc_cTag) {
+          this.context.pop();
+          this.exprAllowed = this.curContext() === tc_expr;
+        } else {
+          this.exprAllowed = true;
+        }
+      };
+      acornJsx2 = { tokContexts, tokTypes };
+      acornJsxMap.set(acorn2, acornJsx2);
+    }
+    return acornJsx2;
+  }
+  function getQualifiedJSXName(object) {
+    if (!object)
+      return object;
+    if (object.type === "JSXIdentifier")
+      return object.name;
+    if (object.type === "JSXNamespacedName")
+      return object.namespace.name + ":" + object.name.name;
+    if (object.type === "JSXMemberExpression")
+      return getQualifiedJSXName(object.object) + "." + getQualifiedJSXName(object.property);
+  }
+  module.exports = function(options) {
+    options = options || {};
+    return function(Parser4) {
+      return plugin({
+        allowNamespaces: options.allowNamespaces !== false,
+        allowNamespacedObjects: !!options.allowNamespacedObjects
+      }, Parser4);
+    };
+  };
+  Object.defineProperty(module.exports, "tokTypes", {
+    get: function get_tokTypes() {
+      return getJsxTokens(require$$1).tokTypes;
+    },
+    configurable: true,
+    enumerable: true
+  });
+  function plugin(options, Parser4) {
+    const acorn2 = Parser4.acorn || require$$1;
+    const acornJsx2 = getJsxTokens(acorn2);
+    const tt = acorn2.tokTypes;
+    const tok = acornJsx2.tokTypes;
+    const tokContexts = acorn2.tokContexts;
+    const tc_oTag = acornJsx2.tokContexts.tc_oTag;
+    const tc_cTag = acornJsx2.tokContexts.tc_cTag;
+    const tc_expr = acornJsx2.tokContexts.tc_expr;
+    const isNewLine2 = acorn2.isNewLine;
+    const isIdentifierStart2 = acorn2.isIdentifierStart;
+    const isIdentifierChar2 = acorn2.isIdentifierChar;
+    return class extends Parser4 {
+      // Expose actual `tokTypes` and `tokContexts` to other plugins.
+      static get acornJsx() {
+        return acornJsx2;
+      }
+      // Reads inline JSX contents token.
+      jsx_readToken() {
+        let out = "", chunkStart = this.pos;
+        for (; ; ) {
+          if (this.pos >= this.input.length)
+            this.raise(this.start, "Unterminated JSX contents");
+          let ch = this.input.charCodeAt(this.pos);
+          switch (ch) {
+            case 60:
+            case 123:
+              if (this.pos === this.start) {
+                if (ch === 60 && this.exprAllowed) {
+                  ++this.pos;
+                  return this.finishToken(tok.jsxTagStart);
+                }
+                return this.getTokenFromCode(ch);
+              }
+              out += this.input.slice(chunkStart, this.pos);
+              return this.finishToken(tok.jsxText, out);
+            case 38:
+              out += this.input.slice(chunkStart, this.pos);
+              out += this.jsx_readEntity();
+              chunkStart = this.pos;
+              break;
+            case 62:
+            case 125:
+              this.raise(
+                this.pos,
+                "Unexpected token `" + this.input[this.pos] + "`. Did you mean `" + (ch === 62 ? "&gt;" : "&rbrace;") + '` or `{"' + this.input[this.pos] + '"}`?'
+              );
+            default:
+              if (isNewLine2(ch)) {
+                out += this.input.slice(chunkStart, this.pos);
+                out += this.jsx_readNewLine(true);
+                chunkStart = this.pos;
+              } else {
+                ++this.pos;
+              }
+          }
+        }
+      }
+      jsx_readNewLine(normalizeCRLF) {
+        let ch = this.input.charCodeAt(this.pos);
+        let out;
+        ++this.pos;
+        if (ch === 13 && this.input.charCodeAt(this.pos) === 10) {
+          ++this.pos;
+          out = normalizeCRLF ? "\n" : "\r\n";
+        } else {
+          out = String.fromCharCode(ch);
+        }
+        if (this.options.locations) {
+          ++this.curLine;
+          this.lineStart = this.pos;
+        }
+        return out;
+      }
+      jsx_readString(quote) {
+        let out = "", chunkStart = ++this.pos;
+        for (; ; ) {
+          if (this.pos >= this.input.length)
+            this.raise(this.start, "Unterminated string constant");
+          let ch = this.input.charCodeAt(this.pos);
+          if (ch === quote) break;
+          if (ch === 38) {
+            out += this.input.slice(chunkStart, this.pos);
+            out += this.jsx_readEntity();
+            chunkStart = this.pos;
+          } else if (isNewLine2(ch)) {
+            out += this.input.slice(chunkStart, this.pos);
+            out += this.jsx_readNewLine(false);
+            chunkStart = this.pos;
+          } else {
+            ++this.pos;
+          }
+        }
+        out += this.input.slice(chunkStart, this.pos++);
+        return this.finishToken(tt.string, out);
+      }
+      jsx_readEntity() {
+        let str = "", count2 = 0, entity;
+        let ch = this.input[this.pos];
+        if (ch !== "&")
+          this.raise(this.pos, "Entity must start with an ampersand");
+        let startPos = ++this.pos;
+        while (this.pos < this.input.length && count2++ < 10) {
+          ch = this.input[this.pos++];
+          if (ch === ";") {
+            if (str[0] === "#") {
+              if (str[1] === "x") {
+                str = str.substr(2);
+                if (hexNumber.test(str))
+                  entity = String.fromCharCode(parseInt(str, 16));
+              } else {
+                str = str.substr(1);
+                if (decimalNumber.test(str))
+                  entity = String.fromCharCode(parseInt(str, 10));
+              }
+            } else {
+              entity = XHTMLEntities[str];
+            }
+            break;
+          }
+          str += ch;
+        }
+        if (!entity) {
+          this.pos = startPos;
+          return "&";
+        }
+        return entity;
+      }
+      // Read a JSX identifier (valid tag or attribute name).
+      //
+      // Optimized version since JSX identifiers can't contain
+      // escape characters and so can be read as single slice.
+      // Also assumes that first character was already checked
+      // by isIdentifierStart in readToken.
+      jsx_readWord() {
+        let ch, start = this.pos;
+        do {
+          ch = this.input.charCodeAt(++this.pos);
+        } while (isIdentifierChar2(ch) || ch === 45);
+        return this.finishToken(tok.jsxName, this.input.slice(start, this.pos));
+      }
+      // Parse next token as JSX identifier
+      jsx_parseIdentifier() {
+        let node = this.startNode();
+        if (this.type === tok.jsxName)
+          node.name = this.value;
+        else if (this.type.keyword)
+          node.name = this.type.keyword;
+        else
+          this.unexpected();
+        this.next();
+        return this.finishNode(node, "JSXIdentifier");
+      }
+      // Parse namespaced identifier.
+      jsx_parseNamespacedName() {
+        let startPos = this.start, startLoc = this.startLoc;
+        let name2 = this.jsx_parseIdentifier();
+        if (!options.allowNamespaces || !this.eat(tt.colon)) return name2;
+        var node = this.startNodeAt(startPos, startLoc);
+        node.namespace = name2;
+        node.name = this.jsx_parseIdentifier();
+        return this.finishNode(node, "JSXNamespacedName");
+      }
+      // Parses element name in any form - namespaced, member
+      // or single identifier.
+      jsx_parseElementName() {
+        if (this.type === tok.jsxTagEnd) return "";
+        let startPos = this.start, startLoc = this.startLoc;
+        let node = this.jsx_parseNamespacedName();
+        if (this.type === tt.dot && node.type === "JSXNamespacedName" && !options.allowNamespacedObjects) {
+          this.unexpected();
+        }
+        while (this.eat(tt.dot)) {
+          let newNode = this.startNodeAt(startPos, startLoc);
+          newNode.object = node;
+          newNode.property = this.jsx_parseIdentifier();
+          node = this.finishNode(newNode, "JSXMemberExpression");
+        }
+        return node;
+      }
+      // Parses any type of JSX attribute value.
+      jsx_parseAttributeValue() {
+        switch (this.type) {
+          case tt.braceL:
+            let node = this.jsx_parseExpressionContainer();
+            if (node.expression.type === "JSXEmptyExpression")
+              this.raise(node.start, "JSX attributes must only be assigned a non-empty expression");
+            return node;
+          case tok.jsxTagStart:
+          case tt.string:
+            return this.parseExprAtom();
+          default:
+            this.raise(this.start, "JSX value should be either an expression or a quoted JSX text");
+        }
+      }
+      // JSXEmptyExpression is unique type since it doesn't actually parse anything,
+      // and so it should start at the end of last read token (left brace) and finish
+      // at the beginning of the next one (right brace).
+      jsx_parseEmptyExpression() {
+        let node = this.startNodeAt(this.lastTokEnd, this.lastTokEndLoc);
+        return this.finishNodeAt(node, "JSXEmptyExpression", this.start, this.startLoc);
+      }
+      // Parses JSX expression enclosed into curly brackets.
+      jsx_parseExpressionContainer() {
+        let node = this.startNode();
+        this.next();
+        node.expression = this.type === tt.braceR ? this.jsx_parseEmptyExpression() : this.parseExpression();
+        this.expect(tt.braceR);
+        return this.finishNode(node, "JSXExpressionContainer");
+      }
+      // Parses following JSX attribute name-value pair.
+      jsx_parseAttribute() {
+        let node = this.startNode();
+        if (this.eat(tt.braceL)) {
+          this.expect(tt.ellipsis);
+          node.argument = this.parseMaybeAssign();
+          this.expect(tt.braceR);
+          return this.finishNode(node, "JSXSpreadAttribute");
+        }
+        node.name = this.jsx_parseNamespacedName();
+        node.value = this.eat(tt.eq) ? this.jsx_parseAttributeValue() : null;
+        return this.finishNode(node, "JSXAttribute");
+      }
+      // Parses JSX opening tag starting after '<'.
+      jsx_parseOpeningElementAt(startPos, startLoc) {
+        let node = this.startNodeAt(startPos, startLoc);
+        node.attributes = [];
+        let nodeName = this.jsx_parseElementName();
+        if (nodeName) node.name = nodeName;
+        while (this.type !== tt.slash && this.type !== tok.jsxTagEnd)
+          node.attributes.push(this.jsx_parseAttribute());
+        node.selfClosing = this.eat(tt.slash);
+        this.expect(tok.jsxTagEnd);
+        return this.finishNode(node, nodeName ? "JSXOpeningElement" : "JSXOpeningFragment");
+      }
+      // Parses JSX closing tag starting after '</'.
+      jsx_parseClosingElementAt(startPos, startLoc) {
+        let node = this.startNodeAt(startPos, startLoc);
+        let nodeName = this.jsx_parseElementName();
+        if (nodeName) node.name = nodeName;
+        this.expect(tok.jsxTagEnd);
+        return this.finishNode(node, nodeName ? "JSXClosingElement" : "JSXClosingFragment");
+      }
+      // Parses entire JSX element, including it's opening tag
+      // (starting after '<'), attributes, contents and closing tag.
+      jsx_parseElementAt(startPos, startLoc) {
+        let node = this.startNodeAt(startPos, startLoc);
+        let children = [];
+        let openingElement = this.jsx_parseOpeningElementAt(startPos, startLoc);
+        let closingElement = null;
+        if (!openingElement.selfClosing) {
+          contents: for (; ; ) {
+            switch (this.type) {
+              case tok.jsxTagStart:
+                startPos = this.start;
+                startLoc = this.startLoc;
+                this.next();
+                if (this.eat(tt.slash)) {
+                  closingElement = this.jsx_parseClosingElementAt(startPos, startLoc);
+                  break contents;
+                }
+                children.push(this.jsx_parseElementAt(startPos, startLoc));
+                break;
+              case tok.jsxText:
+                children.push(this.parseExprAtom());
+                break;
+              case tt.braceL:
+                children.push(this.jsx_parseExpressionContainer());
+                break;
+              default:
+                this.unexpected();
+            }
+          }
+          if (getQualifiedJSXName(closingElement.name) !== getQualifiedJSXName(openingElement.name)) {
+            this.raise(
+              closingElement.start,
+              "Expected corresponding JSX closing tag for <" + getQualifiedJSXName(openingElement.name) + ">"
+            );
+          }
+        }
+        let fragmentOrElement = openingElement.name ? "Element" : "Fragment";
+        node["opening" + fragmentOrElement] = openingElement;
+        node["closing" + fragmentOrElement] = closingElement;
+        node.children = children;
+        if (this.type === tt.relational && this.value === "<") {
+          this.raise(this.start, "Adjacent JSX elements must be wrapped in an enclosing tag");
+        }
+        return this.finishNode(node, "JSX" + fragmentOrElement);
+      }
+      // Parse JSX text
+      jsx_parseText() {
+        let node = this.parseLiteral(this.value);
+        node.type = "JSXText";
+        return node;
+      }
+      // Parses entire JSX element from current position.
+      jsx_parseElement() {
+        let startPos = this.start, startLoc = this.startLoc;
+        this.next();
+        return this.jsx_parseElementAt(startPos, startLoc);
+      }
+      parseExprAtom(refShortHandDefaultPos) {
+        if (this.type === tok.jsxText)
+          return this.jsx_parseText();
+        else if (this.type === tok.jsxTagStart)
+          return this.jsx_parseElement();
+        else
+          return super.parseExprAtom(refShortHandDefaultPos);
+      }
+      readToken(code) {
+        let context = this.curContext();
+        if (context === tc_expr) return this.jsx_readToken();
+        if (context === tc_oTag || context === tc_cTag) {
+          if (isIdentifierStart2(code)) return this.jsx_readWord();
+          if (code == 62) {
+            ++this.pos;
+            return this.finishToken(tok.jsxTagEnd);
+          }
+          if ((code === 34 || code === 39) && context == tc_oTag)
+            return this.jsx_readString(code);
+        }
+        if (code === 60 && this.exprAllowed && this.input.charCodeAt(this.pos + 1) !== 33) {
+          ++this.pos;
+          return this.finishToken(tok.jsxTagStart);
+        }
+        return super.readToken(code);
+      }
+      updateContext(prevType) {
+        if (this.type == tt.braceL) {
+          var curContext = this.curContext();
+          if (curContext == tc_oTag) this.context.push(tokContexts.b_expr);
+          else if (curContext == tc_expr) this.context.push(tokContexts.b_tmpl);
+          else super.updateContext(prevType);
+          this.exprAllowed = true;
+        } else if (this.type === tt.slash && prevType === tok.jsxTagStart) {
+          this.context.length -= 2;
+          this.context.push(tc_cTag);
+          this.exprAllowed = false;
+        } else {
+          return super.updateContext(prevType);
+        }
+      }
+    };
+  }
+})(acornJsx);
+var acornJsxExports = acornJsx.exports;
+const jsx = /* @__PURE__ */ getDefaultExportFromCjs(acornJsxExports);
 function simple(node, visitors, baseVisitor, state, override) {
   if (!baseVisitor) {
     baseVisitor = base;
@@ -26873,15 +27621,9 @@ base.WithStatement = function(node, st, c) {
 };
 base.SwitchStatement = function(node, st, c) {
   c(node.discriminant, st, "Expression");
-  for (var i$1 = 0, list$1 = node.cases; i$1 < list$1.length; i$1 += 1) {
-    var cs = list$1[i$1];
-    if (cs.test) {
-      c(cs.test, st, "Expression");
-    }
-    for (var i = 0, list = cs.consequent; i < list.length; i += 1) {
-      var cons = list[i];
-      c(cons, st, "Statement");
-    }
+  for (var i = 0, list = node.cases; i < list.length; i += 1) {
+    var cs = list[i];
+    c(cs, st);
   }
 };
 base.SwitchCase = function(node, st, c) {
@@ -27440,7 +28182,27 @@ function rewriteNestedCalls(body, baseId) {
       const inFunction = hasFunctionDeclaration(node, ancestors);
       const isEvent = isNonTopEvent(node, ancestors);
       if (isEvent && !inFunction) {
-        rewriteSpecs.push({ start: node.start, end: node.end, name: `_${baseId}_${rewriteSpecs.length}` });
+        rewriteSpecs.push({ start: node.start, end: node.end, name: `_${baseId}_${rewriteSpecs.length}`, type: "range" });
+      }
+    },
+    VariableDeclarator(node, ancestors) {
+      if (isTopObjectDeclaration(node, ancestors) && node.init) {
+        const baseName = `_${baseId}_${rewriteSpecs.length}`;
+        rewriteSpecs.push({ start: node.init.start, end: node.init.end, name: baseName, type: "range" });
+        const id = node.id;
+        const properties = id.properties;
+        for (const property of properties) {
+          if (property.type === "RestElement") {
+            console.log("unsupported style of assignment");
+            continue;
+          }
+          const p = property;
+          if (p.value.type === "Identifier" && p.key.type === "Identifier") {
+            rewriteSpecs.push({ definition: `const ${p.value.name} = ${baseName}.${p.key.name}`, type: "override" });
+          } else {
+            console.log("unsupported style of assignment");
+          }
+        }
       }
     }
   });
@@ -27454,8 +28216,11 @@ function isNonTopEvent(node, ancestors) {
   const callee = call.callee;
   return callee.type === "MemberExpression" && callee.object.type === "Identifier" && (callee.object.name === "Events" || callee.object.name === "Behaviors") && callee.property.type === "Identifier" && ancestors.length > 2 && ancestors[ancestors.length - 2].type !== "VariableDeclarator";
 }
-function hasFunctionDeclaration(node, ancestors) {
+function hasFunctionDeclaration(_node, ancestors) {
   return !!ancestors.find((a) => a.type === "ArrowFunctionExpression");
+}
+function isTopObjectDeclaration(node, ancestors) {
+  return node.type === "VariableDeclarator" && node.id.type === "ObjectPattern" && ancestors.length === 3;
 }
 const acornOptions = {
   ecmaVersion: 13,
@@ -27467,7 +28232,8 @@ function findDecls(input) {
     const list = body.body;
     return list.map((decl) => input.slice(decl.start, decl.end));
   } catch (error) {
-    console.log(error.message, ": error around -> ", `"${input.slice(error.pos - 30, error.pos + 30)}"`);
+    const e = error;
+    console.log(e.message, ": error around -> ", `"${input.slice(e.pos - 30, e.pos + 30)}"`);
     return [];
   }
 }
@@ -27498,27 +28264,35 @@ function parseJavaScript(input, initialId, flattened2 = false) {
     } else {
       let newInput = decl;
       let newPart = "";
+      let overridden = false;
       for (let i = 0; i < rewriteSpecs.length; i++) {
         const spec = rewriteSpecs[i];
-        const sub = newInput.slice(spec.start, spec.end);
-        const varName = spec.name;
-        newPart += `const ${varName} = ${sub};
+        if (spec.type === "range") {
+          const sub = newInput.slice(spec.start, spec.end);
+          const varName = spec.name;
+          newPart += `const ${varName} = ${sub};
 `;
-        let length = spec.end - spec.start;
-        const newNewInput = `${newInput.slice(0, spec.start)}${spec.name.padEnd(length, " ")}${newInput.slice(spec.end)}`;
-        if (newNewInput.length !== decl.length) {
-          debugger;
+          let length = spec.end - spec.start;
+          const newNewInput = `${newInput.slice(0, spec.start)}${spec.name.padEnd(length, " ")}${newInput.slice(spec.end)}`;
+          if (newNewInput.length !== decl.length) {
+            debugger;
+          }
+          newInput = newNewInput;
+        } else if (spec.type === "override") {
+          overridden = true;
+          newPart += spec.definition + "\n";
         }
-        newInput = newNewInput;
       }
-      allReferences.push(...parseJavaScript(`${newPart}
-${newInput}`, initialId, true));
+      allReferences.push(...parseJavaScript(`${newPart}${overridden ? "" : "\n" + newInput}`, initialId, true));
     }
   }
   return allReferences;
 }
 function parseProgram(input) {
   return Parser2.parse(input, acornOptions);
+}
+function parseJSX(input) {
+  return Parser2.extend(jsx()).parse(input, { ecmaVersion: 13 });
 }
 class Sourcemap {
   constructor(input) {
@@ -27890,7 +28664,6 @@ class UserEvent extends Stream {
     this.record = record;
   }
   created(state, id) {
-    state.streams.get(id);
     let oldRecord = state.scratch.get(id);
     if (oldRecord && oldRecord.cleanup && typeof oldRecord.cleanup === "function") {
       oldRecord.cleanup();
@@ -29102,7 +29875,7 @@ class ProgramState {
         id++;
       }
     }
-    const translated = jsNodes.map((jsNode) => transpileJavaScript(jsNode));
+    const translated = jsNodes.map((jsNode) => ({ id: jsNode.id, code: transpileJavaScript(jsNode) }));
     const evaluated = translated.map((tr) => this.evalCode(tr));
     const sorted = topologicalSort(evaluated);
     const newNodes = /* @__PURE__ */ new Map();
@@ -29145,8 +29918,9 @@ class ProgramState {
       }
     }
     for (const [varName, node] of this.nodes) {
+      const nodeNames = [...this.nodes].map(([id2, _body]) => id2);
       for (const input of node.inputs) {
-        if (!this.order.includes(this.baseVarName(input))) {
+        if (!nodeNames.includes(this.baseVarName(input))) {
           console.log(`Node ${varName} won't be evaluated as it depends on an undefined variable ${input}.`);
         }
       }
@@ -29213,11 +29987,12 @@ class ProgramState {
     this.changeList.clear();
     return this.updated;
   }
-  evalCode(str) {
-    let code = `return ${str}`;
-    let func = new Function("Events", "Behaviors", "Renkon", code);
+  evalCode(arg) {
+    const { id, code } = arg;
+    let body = `return ${code} //# sourceURL=${window.location.origin}/node/${id}`;
+    let func = new Function("Events", "Behaviors", "Renkon", body);
     let val = func(Events, Behaviors, this);
-    val.code = str;
+    val.code = code;
     return val;
   }
   ready(node) {
@@ -29352,6 +30127,83 @@ function makeHTMLFromContent(text) {
   </body>
 </html>`;
   return header + text + footer;
+}
+function transpileJSX(code) {
+  const node = parseJSX(code);
+  const result = rewriteJSX(node.body[0], code);
+  if (typeof result === "string") {
+    return result;
+  }
+  return result.flat(Infinity).join("");
+}
+function rewriteJSX(body, code) {
+  function translate(body2) {
+    if (body2.type === "JSXElement") {
+      const result = [];
+      const opening = translate(body2.openingElement);
+      const children = body2.children.map((c) => translate(c));
+      result.push(`h(`);
+      result.push(...opening);
+      if (children.length > 0) {
+        const list = [children[0]];
+        for (let i = 1; i < children.length; i++) {
+          list.push(", ");
+          list.push(children[i]);
+        }
+        result.push(", ");
+        result.push(list);
+      }
+      result.push(")");
+      return result;
+    } else if (body2.type === "JSXExpressionContainer") {
+      return translate(body2.expression);
+    } else if (body2.type === "JSXSpreadChild") {
+      return "";
+    } else if (body2.type === "JSXClosingFragment") {
+      return body2.name;
+    } else if (body2.type === "JSXEmptyExpression") {
+      return "";
+    } else if (body2.type === "JSXIdentifier") {
+      return body2.name;
+    } else if (body2.type === "JSXOpeningFragment") {
+      return body2.name;
+    } else if (body2.type === "JSXText") {
+      return `"${body2.value}"`;
+    } else if (body2.type === "JSXSpreadAttribute") {
+      return "";
+    } else if (body2.type === "JSXAttribute") {
+      return [translate(body2.name), ": ", translate(body2.value)];
+    } else if (body2.type === "JSXMemberExpression") {
+      return "";
+    } else if (body2.type === "JSXNamespacedName") {
+      return "";
+    } else if (body2.type === "JSXOpeningElement") {
+      const tag = translate(body2.name);
+      const attributes = body2.attributes.map((a) => translate(a));
+      const attrs = [];
+      if (attributes.length > 0) {
+        for (let i = 0; i < attributes.length; i++) {
+          if (i !== 0) {
+            attrs.push(", ");
+          }
+          attrs.push(attributes[i]);
+        }
+      }
+      return [`"${tag}"`, ", ", "{", ...attrs, "}"];
+    } else if (body2.type === "JSXClosingElement") {
+      return "";
+    } else if (body2.type === "JSXFragment") {
+      return "";
+    } else if (body2.type === "ExpressionStatement") {
+      return translate(body2.expression);
+    } else if (body2.type === "Identifier") {
+      return body2.name;
+    } else if (body2.type === "Literal") {
+      return body2.raw;
+    }
+    return code.slice(body2.start, body2.end);
+  }
+  return translate(body);
 }
 let myResizeHandler;
 const css = `html, body, #renkon {
@@ -29497,7 +30349,24 @@ function update(renkon, editorView, programState) {
   renkon.innerHTML = editorView.state.doc.toString();
   let scripts = [...renkon.querySelectorAll("script[type='reactive']")];
   let text = scripts.map((s) => s.textContent).filter((s) => s);
-  programState.setupProgram(text);
+  let jsxElements = [...renkon.querySelectorAll("script[type='renkon-jsx']")];
+  let jsxs = jsxElements.map((s) => ({ element: s, code: s.textContent })).filter((s) => s.code);
+  const programs = [...text];
+  if (jsxs.length > 0) {
+    const translated = jsxs.map((jsx2, index) => {
+      const str = transpileJSX(jsx2.code);
+      const div = document.createElement("div");
+      div.id = `jsx-${index}`;
+      if (jsx2.element.style.cssText !== "") {
+        div.setAttribute("style", jsx2.element.style.cssText);
+      }
+      renkon.insertBefore(div, jsx2.element.nextSibling);
+      const renderString = `render(${str}, document.querySelector("#${div.id}"))`;
+      return renderString;
+    });
+    programs.push(...translated);
+  }
+  programState.setupProgram(programs);
   if (programState.evaluatorRunning === 0) {
     programState.evaluator();
   }
@@ -29533,5 +30402,7 @@ async function load(renkon, editorView, programState) {
 }
 export {
   ProgramState,
+  parseJSX,
+  transpileJSX,
   view
 };
