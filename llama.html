@@ -11,7 +11,7 @@
         const render = preactModule.render;
         const output = document.querySelector("#output");
 
-        const abortHandler = Events.click("abort");
+        const abortHandler = Events.listener("#abort", "click", (evt) => evt);
         const abortController = Behaviors.collect(new AbortController(), Events.or(abortHandler, Events.change($responses)), (a, b) => {
           console.log("reset");
           a.abort(); 

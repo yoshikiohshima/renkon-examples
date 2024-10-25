@@ -14,7 +14,7 @@
         const reset = Events.receiver();
         const resetter = (evt) => Events.send(reset, "reset");
 
-        const button = Events.click(document.querySelector("#button"))
+          const button = Events.listener(document.querySelector("#button"), "click", evt => evt);
         const changes = Behaviors.collect([], Events.or(button, reset), (a, b) => {return b === "reset" ? [] : [...a, 0]});
         const changesHTM = changes.map((c) => html`<span onClick=${resetter}>${c}</span>`);
 

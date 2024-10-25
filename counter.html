@@ -10,13 +10,13 @@
                 return ev.target.id === "minus" ? old - 1 : old + 1;
             });
             
-            const minus = Events.click("#minus");
-            const plus = Events.click("#plus");
+            const minus = Events.listener("#minus", "click", evt => evt);
+            const plus = Events.listener("#plus", "click", evt => evt);
             document.querySelector("#output").textContent = value;
       </script>
-        <button id="minus">-</button>
-        <div id="output"></div>
         <button id="plus">+</button>
+        <div id="output"></div>
+        <button id="minus">-</button>
     </div>
     <script type="module">
       import {view} from "./dist/renkon.js";

@@ -32,8 +32,8 @@
             ((value, n) => set(value, n))(c, "#c");
             ((value, n) => set(value, n))(f, "#f");
 
-            const cChange = Events.input("#c");
-            const fChange = Events.input("#f");
+            const cChange = Events.listener("#c", "input", evt => evt);
+            const fChange = Events.listener("#f", "input", evt => evt);
       </script>
         <input id="c"></input>
         <input id="f"></input>

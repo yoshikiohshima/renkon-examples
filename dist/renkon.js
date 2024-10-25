@@ -22686,7 +22686,7 @@ pp$8.parseClassElement = function(constructorAllowsSuper) {
   var ecmaVersion = this.options.ecmaVersion;
   var node = this.startNode();
   var keyName2 = "";
-  var isGenerator = false;
+  var isGenerator2 = false;
   var isAsync = false;
   var kind = "method";
   var isStatic = false;
@@ -22710,9 +22710,9 @@ pp$8.parseClassElement = function(constructorAllowsSuper) {
     }
   }
   if (!keyName2 && (ecmaVersion >= 9 || !isAsync) && this.eat(types$1.star)) {
-    isGenerator = true;
+    isGenerator2 = true;
   }
-  if (!keyName2 && !isAsync && !isGenerator) {
+  if (!keyName2 && !isAsync && !isGenerator2) {
     var lastValue = this.value;
     if (this.eatContextual("get") || this.eatContextual("set")) {
       if (this.isClassElementNameStart()) {
@@ -22730,14 +22730,14 @@ pp$8.parseClassElement = function(constructorAllowsSuper) {
   } else {
     this.parseClassElementName(node);
   }
-  if (ecmaVersion < 13 || this.type === types$1.parenL || kind !== "method" || isGenerator || isAsync) {
+  if (ecmaVersion < 13 || this.type === types$1.parenL || kind !== "method" || isGenerator2 || isAsync) {
     var isConstructor = !node.static && checkKeyName(node, "constructor");
     var allowsDirectSuper = isConstructor && constructorAllowsSuper;
     if (isConstructor && kind !== "method") {
       this.raise(node.key.start, "Constructor can't have get/set modifier");
     }
     node.kind = isConstructor ? "constructor" : kind;
-    this.parseClassMethod(node, isGenerator, isAsync, allowsDirectSuper);
+    this.parseClassMethod(node, isGenerator2, isAsync, allowsDirectSuper);
   } else {
     this.parseClassField(node);
   }
@@ -22757,10 +22757,10 @@ pp$8.parseClassElementName = function(element) {
     this.parsePropertyName(element);
   }
 };
-pp$8.parseClassMethod = function(method, isGenerator, isAsync, allowsDirectSuper) {
+pp$8.parseClassMethod = function(method, isGenerator2, isAsync, allowsDirectSuper) {
   var key = method.key;
   if (method.kind === "constructor") {
-    if (isGenerator) {
+    if (isGenerator2) {
       this.raise(key.start, "Constructor can't be a generator");
     }
     if (isAsync) {
@@ -22769,7 +22769,7 @@ pp$8.parseClassMethod = function(method, isGenerator, isAsync, allowsDirectSuper
   } else if (method.static && checkKeyName(method, "prototype")) {
     this.raise(key.start, "Classes may not have a static property named prototype");
   }
-  var value = method.value = this.parseMethod(isGenerator, isAsync, allowsDirectSuper);
+  var value = method.value = this.parseMethod(isGenerator2, isAsync, allowsDirectSuper);
   if (method.kind === "get" && value.params.length !== 0) {
     this.raiseRecoverable(value.start, "getter should have no params");
   }
@@ -24191,7 +24191,7 @@ pp$5.parseObj = function(isPattern, refDestructuringErrors) {
   return this.finishNode(node, isPattern ? "ObjectPattern" : "ObjectExpression");
 };
 pp$5.parseProperty = function(isPattern, refDestructuringErrors) {
-  var prop = this.startNode(), isGenerator, isAsync, startPos, startLoc;
+  var prop = this.startNode(), isGenerator2, isAsync, startPos, startLoc;
   if (this.options.ecmaVersion >= 9 && this.eat(types$1.ellipsis)) {
     if (isPattern) {
       prop.argument = this.parseIdent(false);
@@ -24214,19 +24214,19 @@ pp$5.parseProperty = function(isPattern, refDestructuringErrors) {
       startLoc = this.startLoc;
     }
     if (!isPattern) {
-      isGenerator = this.eat(types$1.star);
+      isGenerator2 = this.eat(types$1.star);
     }
   }
   var containsEsc = this.containsEsc;
   this.parsePropertyName(prop);
-  if (!isPattern && !containsEsc && this.options.ecmaVersion >= 8 && !isGenerator && this.isAsyncProp(prop)) {
+  if (!isPattern && !containsEsc && this.options.ecmaVersion >= 8 && !isGenerator2 && this.isAsyncProp(prop)) {
     isAsync = true;
-    isGenerator = this.options.ecmaVersion >= 9 && this.eat(types$1.star);
+    isGenerator2 = this.options.ecmaVersion >= 9 && this.eat(types$1.star);
     this.parsePropertyName(prop);
   } else {
     isAsync = false;
   }
-  this.parsePropertyValue(prop, isPattern, isGenerator, isAsync, startPos, startLoc, refDestructuringErrors, containsEsc);
+  this.parsePropertyValue(prop, isPattern, isGenerator2, isAsync, startPos, startLoc, refDestructuringErrors, containsEsc);
   return this.finishNode(prop, "Property");
 };
 pp$5.parseGetterSetter = function(prop) {
@@ -24247,8 +24247,8 @@ pp$5.parseGetterSetter = function(prop) {
     }
   }
 };
-pp$5.parsePropertyValue = function(prop, isPattern, isGenerator, isAsync, startPos, startLoc, refDestructuringErrors, containsEsc) {
-  if ((isGenerator || isAsync) && this.type === types$1.colon) {
+pp$5.parsePropertyValue = function(prop, isPattern, isGenerator2, isAsync, startPos, startLoc, refDestructuringErrors, containsEsc) {
+  if ((isGenerator2 || isAsync) && this.type === types$1.colon) {
     this.unexpected();
   }
   if (this.eat(types$1.colon)) {
@@ -24260,14 +24260,14 @@ pp$5.parsePropertyValue = function(prop, isPattern, isGenerator, isAsync, startP
     }
     prop.kind = "init";
     prop.method = true;
-    prop.value = this.parseMethod(isGenerator, isAsync);
+    prop.value = this.parseMethod(isGenerator2, isAsync);
   } else if (!isPattern && !containsEsc && this.options.ecmaVersion >= 5 && !prop.computed && prop.key.type === "Identifier" && (prop.key.name === "get" || prop.key.name === "set") && (this.type !== types$1.comma && this.type !== types$1.braceR && this.type !== types$1.eq)) {
-    if (isGenerator || isAsync) {
+    if (isGenerator2 || isAsync) {
       this.unexpected();
     }
     this.parseGetterSetter(prop);
   } else if (this.options.ecmaVersion >= 6 && !prop.computed && prop.key.type === "Identifier") {
-    if (isGenerator || isAsync) {
+    if (isGenerator2 || isAsync) {
       this.unexpected();
     }
     this.checkUnreserved(prop.key);
@@ -24312,11 +24312,11 @@ pp$5.initFunction = function(node) {
     node.async = false;
   }
 };
-pp$5.parseMethod = function(isGenerator, isAsync, allowDirectSuper) {
+pp$5.parseMethod = function(isGenerator2, isAsync, allowDirectSuper) {
   var node = this.startNode(), oldYieldPos = this.yieldPos, oldAwaitPos = this.awaitPos, oldAwaitIdentPos = this.awaitIdentPos;
   this.initFunction(node);
   if (this.options.ecmaVersion >= 6) {
-    node.generator = isGenerator;
+    node.generator = isGenerator2;
   }
   if (this.options.ecmaVersion >= 8) {
     node.async = !!isAsync;
@@ -26550,14 +26550,14 @@ pp.readCodePoint = function() {
   }
   return code;
 };
-pp.readString = function(quote) {
+pp.readString = function(quote2) {
   var out = "", chunkStart = ++this.pos;
   for (; ; ) {
     if (this.pos >= this.input.length) {
       this.raise(this.start, "Unterminated string constant");
     }
     var ch = this.input.charCodeAt(this.pos);
-    if (ch === quote) {
+    if (ch === quote2) {
       break;
     }
     if (ch === 92) {
@@ -27282,13 +27282,13 @@ const require$$1 = /* @__PURE__ */ getAugmentedNamespace(acorn);
         }
         return out;
       }
-      jsx_readString(quote) {
+      jsx_readString(quote2) {
         let out = "", chunkStart = ++this.pos;
         for (; ; ) {
           if (this.pos >= this.input.length)
             this.raise(this.start, "Unterminated string constant");
           let ch = this.input.charCodeAt(this.pos);
-          if (ch === quote) break;
+          if (ch === quote2) break;
           if (ch === 38) {
             out += this.input.slice(chunkStart, this.pos);
             out += this.jsx_readEntity();
@@ -28422,13 +28422,13 @@ return ${only};`);
   output.insertRight(node.input.length, "\n}};\n");
   return String(output);
 }
-function getFunctionBody(input) {
+function getFunctionBody(input, forMerge) {
   const compiled = parseJavaScript(input, 0, true);
   const node = compiled[0].body.body[0];
   const params = node.params.map((p) => p.name);
   const body = node.body.body;
   const last = body[body.length - 1];
-  const returnArray = getArray(last);
+  const returnArray = forMerge ? [] : getArray(last);
   const output = new Sourcemap(input).trim();
   output.delete(0, body[0].start);
   output.delete(last.start, input.length);
@@ -28452,34 +28452,35 @@ function getArray(returnNode) {
   }
   return array.elements.map((e) => e.name);
 }
+function quote(node, output) {
+  output.insertLeft(node.start, '"');
+  output.insertRight(node.end, '"');
+}
 function rewriteRenkonCalls(output, body) {
   simple(body, {
     CallExpression(node) {
       const callee = node.callee;
       if (callee.type === "MemberExpression" && callee.object.type === "Identifier") {
         if (callee.object.name === "Events") {
+          output.insertRight(callee.object.end, ".create(Renkon)");
           if (callee.property.type === "Identifier") {
             if (callee.property.name === "delay") {
-              output.insertLeft(node.arguments[0].start, '"');
-              output.insertRight(node.arguments[0].end, '"');
+              quote(node.arguments[0], output);
             } else if (callee.property.name === "or") {
               for (const arg of node.arguments) {
-                output.insertLeft(arg.start, '"');
-                output.insertRight(arg.end, '"');
+                quote(arg, output);
               }
             } else if (callee.property.name === "send") {
-              output.insertLeft(node.arguments[0].start, 'Renkon, "');
-              output.insertRight(node.arguments[0].end, '"');
+              quote(node.arguments[0], output);
             } else if (callee.property.name === "collect") {
-              output.insertLeft(node.arguments[1].start, '"');
-              output.insertRight(node.arguments[1].end, '"');
+              quote(node.arguments[1], output);
             }
           }
         } else if (callee.object.name === "Behaviors") {
+          output.insertRight(callee.object.end, ".create(Renkon)");
           if (callee.property.type === "Identifier") {
             if (callee.property.name === "collect") {
-              output.insertLeft(node.arguments[1].start, '"');
-              output.insertRight(node.arguments[1].end, '"');
+              quote(node.arguments[1], output);
             }
           }
         }
@@ -28500,6 +28501,7 @@ const sendType = "SendType";
 const receiverType = "ReceiverType";
 const changeType = "ChangeType";
 const generatorNextType = "GeneratorNextType";
+const resolvePartType = "ResolvePart";
 _b = typeKey, _a2 = isBehaviorKey;
 class Stream {
   constructor(type, isBehavior) {
@@ -28525,7 +28527,18 @@ class Stream {
   evaluate(_state, _node, _inputArray, _lastInputArray) {
     return;
   }
-  conclude(_state, _varName) {
+  conclude(state, varName) {
+    const inputArray = state.inputArray.get(varName);
+    const inputs = state.nodes.get(varName).inputs;
+    if (!inputArray || !inputs) {
+      return;
+    }
+    for (let i = 0; i < inputs.length; i++) {
+      const resolved = state.resolved.get(inputs[i]);
+      if (resolved === void 0) {
+        inputArray[i] = void 0;
+      }
+    }
     return;
   }
 }
@@ -28566,6 +28579,7 @@ class DelayedEvent extends Stream {
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
     if (this[isBehaviorKey]) {
       return;
     }
@@ -28599,6 +28613,7 @@ class TimerEvent extends Stream {
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
     if (this[isBehaviorKey]) {
       return;
     }
@@ -28650,6 +28665,7 @@ class OrEvent extends Stream {
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
     if (((_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value) !== void 0) {
       state.resolved.delete(varName);
       return varName;
@@ -28673,14 +28689,20 @@ class UserEvent extends Stream {
     return this;
   }
   evaluate(state, node, _inputArray, _lastInputArray) {
-    const value = state.getEventValue(state.scratch.get(node.id), state.time);
-    if (value !== void 0) {
-      state.setResolved(node.id, { value, time: state.time });
-      return;
+    const newValue = state.getEventValue(state.scratch.get(node.id), state.time);
+    if (newValue !== void 0) {
+      if (newValue !== null && newValue.then) {
+        newValue.then((value) => {
+          state.setResolved(node.id, { value, time: state.time });
+        });
+      } else {
+        state.setResolved(node.id, { value: newValue, time: state.time });
+      }
     }
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
     if (((_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value) !== void 0) {
       state.resolved.delete(varName);
       return varName;
@@ -28713,6 +28735,7 @@ class ReceiverEvent extends Stream {
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
     if (((_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value) !== void 0) {
       state.resolved.delete(varName);
       state.scratch.delete(varName);
@@ -28745,6 +28768,7 @@ class ChangeEvent extends Stream {
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
     if (((_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value) !== void 0) {
       state.resolved.delete(varName);
       return varName;
@@ -28768,6 +28792,15 @@ class CollectStream extends Stream {
     this.updater = updater;
   }
   created(state, id) {
+    if (this.init && typeof this.init === "object" && this.init.then) {
+      this.init.then((value) => {
+        state.streams.set(id, this);
+        this.init = value;
+        state.setResolved(id, { value, time: state.time });
+        state.scratch.set(id, { current: this.init });
+      });
+      return this;
+    }
     if (!state.scratch.get(id)) {
       state.streams.set(id, this);
       state.setResolved(id, { value: this.init, time: state.time });
@@ -28777,6 +28810,9 @@ class CollectStream extends Stream {
   }
   evaluate(state, node, inputArray, lastInputArray) {
     const scratch = state.scratch.get(node.id);
+    if (!scratch) {
+      return;
+    }
     const inputIndex = node.inputs.indexOf(this.varName);
     const inputValue = inputArray[inputIndex];
     if (inputValue !== void 0 && (!lastInputArray || inputValue !== lastInputArray[inputIndex])) {
@@ -28796,6 +28832,61 @@ class CollectStream extends Stream {
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class ResolvePart extends Stream {
+  constructor(promise, object, isBehavior) {
+    super(resolvePartType, isBehavior);
+    __publicField(this, "promise");
+    __publicField(this, "resolved");
+    __publicField(this, "object");
+    this.promise = promise;
+    this.object = object;
+    this.resolved = !(typeof this.promise === "object" && this.promise.then);
+  }
+  created(state, id) {
+    if (!this.resolved) {
+      this.promise.then((value) => {
+        var _a3;
+        const wasResolved = (_a3 = state.resolved.get(id)) == null ? void 0 : _a3.value;
+        if (!wasResolved) {
+          this.resolved = true;
+          if (Array.isArray(this.object)) {
+            const promiseIndex = this.object.indexOf(this.promise);
+            const result = [...this.object];
+            if (promiseIndex < 0) {
+              return result;
+            }
+            result[promiseIndex] = value;
+            state.setResolved(id, { value: result, time: state.time });
+            return result;
+          } else {
+            const result = { ...this.object };
+            const key = Object.keys(this.object).find((key2) => this.object[key2] === this.promise);
+            if (!key) {
+              return result;
+            }
+            result[key] = value;
+            state.setResolved(id, { value: result, time: state.time });
+            return result;
+          }
+        }
+      });
+    }
+    return this;
+  }
+  conclude(state, varName) {
+    var _a3;
+    super.conclude(state, varName);
     if (this[isBehaviorKey]) {
       return;
     }
@@ -28831,6 +28922,7 @@ class GeneratorNextEvent extends Stream {
   }
   conclude(state, varName) {
     var _a3;
+    super.conclude(state, varName);
     const value = (_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value;
     if (value !== void 0) {
       if (!value.done) {
@@ -29580,30 +29672,25 @@ function showInspector(programState, show, dom) {
     inspector.fulfilled(programState.resolved);
   }
 }
-const prototypicalGeneratorFunction = async function* () {
-}();
+function isGenerator(value) {
+  const prototypicalGeneratorFunction = async function* () {
+  }();
+  if (value === void 0 || value === null) {
+    return false;
+  }
+  return typeof value === "object" && value.constructor === prototypicalGeneratorFunction.constructor;
+}
+const defaultHandler = (ev) => ev;
 function eventBody(options) {
-  let { forObserve, callback, dom, eventName, eventHandler } = options;
+  let { forObserve, callback, dom, eventName, eventHandler, state } = options;
   let record = { queue: [] };
   let myHandler;
   let realDom;
   if (typeof dom === "string") {
-    if (dom.startsWith("#")) {
-      realDom = document.querySelector(dom);
-    } else {
-      realDom = document.getElementById(dom);
-    }
+    realDom = document.querySelector(dom);
   } else {
     realDom = dom;
   }
-  const handlers2 = (eventName2) => {
-    if (eventName2 === "input" || eventName2 === "click") {
-      return (evt) => {
-        record.queue.push({ value: evt, time: 0 });
-      };
-    }
-    return (_evt) => null;
-  };
   const notifier = (value) => {
     record.queue.push({ value, time: 0 });
   };
@@ -29613,10 +29700,13 @@ function eventBody(options) {
         const value = eventHandler(evt);
         if (value !== void 0) {
           record.queue.push({ value, time: 0 });
+          if (state.noTicking) {
+            state.noTickingEvaluator();
+          }
         }
       };
     } else {
-      myHandler = handlers2(eventName);
+      myHandler = defaultHandler;
     }
     if (myHandler) {
       realDom.addEventListener(eventName, myHandler);
@@ -29639,77 +29729,48 @@ function eventBody(options) {
   }
   return new UserEvent(record);
 }
-function renkonify(func, optSystem) {
-  const programState = new ProgramState(Date.now(), optSystem);
-  const { params, returnArray, output } = getFunctionBody(func.toString());
-  console.log(params, returnArray, output);
-  programState.setupProgram([output]);
-  function generator(...args) {
-    const gen = renkonBody(...args);
-    gen.done = false;
-    return Events.next(gen);
+class Events {
+  constructor(state) {
+    __publicField(this, "programState");
+    this.programState = state;
   }
-  async function* renkonBody(...args) {
-    for (let i = 0; i < params.length; i++) {
-      programState.setResolved(params[i], args[i]);
-    }
-    while (true) {
-      programState.evaluate(programState.time);
-      const result = {};
-      if (returnArray) {
-        for (const n of returnArray) {
-          const v = programState.resolved.get(n);
-          if (v && v.value !== void 0) {
-            result[n] = v.value;
-          }
-        }
-      }
-      yield result;
-    }
+  static create(state) {
+    return new Events(state);
   }
-  return generator;
-}
-const Events = {
-  observe(callback) {
-    return eventBody({ type: eventType, forObserve: true, callback });
-  },
-  input(dom) {
-    return eventBody({ type: eventType, forObserve: false, dom, eventName: "input" });
-  },
-  click(dom) {
-    return eventBody({ type: eventType, forObserve: false, dom, eventName: "click" });
-  },
   listener(dom, eventName, handler) {
-    return eventBody({ type: eventType, forObserve: false, dom, eventName, eventHandler: handler });
-  },
+    return eventBody({ type: eventType, forObserve: false, dom, eventName, eventHandler: handler, state: this.programState });
+  }
   delay(varName, delay) {
     return new DelayedEvent(delay, varName, false);
-  },
+  }
   timer(interval) {
     return new TimerEvent(interval, false);
-  },
+  }
   change(value) {
     return new ChangeEvent(value);
-  },
+  }
   next(generator) {
     return new GeneratorNextEvent(generator);
-  },
+  }
   or(...varNames) {
     return new OrEvent(varNames);
-  },
+  }
   collect(init, varName, updater) {
     return new CollectStream(init, varName, updater, false);
-  },
+  }
   /*map<S, T>(varName:VarName, updater: (arg:S) => T) {
       return new CollectStream(undefined, varName, (_a, b) => updater(b), false);
   },*/
-  send(state, receiver, value) {
-    state.registerEvent(receiver, value);
+  send(receiver, value) {
+    this.programState.registerEvent(receiver, value);
     return new SendEvent();
-  },
+  }
   receiver() {
     return new ReceiverEvent(void 0);
-  },
+  }
+  observe(callback) {
+    return eventBody({ type: eventType, forObserve: true, callback, state: this.programState });
+  }
   message(event, data2, directWindow) {
     const isInIframe = window.top !== window;
     const obj = { event: `renkon:${event}`, data: data2 };
@@ -29720,27 +29781,39 @@ const Events = {
     if (directWindow) {
       directWindow.postMessage(obj, "*");
     }
-  },
-  renkonify
-};
-const Behaviors = {
+  }
+  resolvePart(promise, object) {
+    return new ResolvePart(promise, object, false);
+  }
+}
+class Behaviors {
+  constructor(state) {
+    __publicField(this, "programState");
+    this.programState = state;
+  }
+  static create(state) {
+    return new Behaviors(state);
+  }
   keep(value) {
     return value;
-  },
+  }
   collect(init, varName, updater) {
     return new CollectStream(init, varName, updater, true);
-  },
+  }
   timer(interval) {
     return new TimerEvent(interval, true);
-  },
+  }
   delay(varName, delay) {
     return new DelayedEvent(delay, varName, true);
+  }
+  resolvePart(promise, object) {
+    return new ResolvePart(promise, object, true);
   }
   /*
   startsWith(init:any, varName:VarName) {
       return new CollectStream(init, varName, (_old, v) => v, true);
   }*/
-};
+}
 function topologicalSort(nodes) {
   let order = [];
   let workNodes = nodes.map((node) => ({
@@ -29792,7 +29865,8 @@ function difference(oldSet, newSet) {
   return result;
 }
 class ProgramState {
-  constructor(startTime, app) {
+  constructor(startTime, app, noTicking) {
+    __publicField(this, "scripts");
     __publicField(this, "order");
     __publicField(this, "nodes");
     __publicField(this, "streams");
@@ -29803,9 +29877,12 @@ class ProgramState {
     __publicField(this, "time");
     __publicField(this, "startTime");
     __publicField(this, "evaluatorRunning");
+    __publicField(this, "exports");
+    __publicField(this, "imports");
     __publicField(this, "updated");
     __publicField(this, "app");
     __publicField(this, "noTicking");
+    this.scripts = [];
     this.order = [];
     this.nodes = /* @__PURE__ */ new Map();
     this.streams = /* @__PURE__ */ new Map();
@@ -29817,9 +29894,12 @@ class ProgramState {
     this.evaluatorRunning = 0;
     this.updated = false;
     this.app = app;
-    this.noTicking = false;
+    this.noTicking = noTicking !== void 0 ? noTicking : false;
   }
   evaluator() {
+    if (this.noTicking) {
+      return this.noTickingEvaluator();
+    }
     this.evaluatorRunning = window.requestAnimationFrame(() => this.evaluator());
     try {
       this.evaluate(Date.now());
@@ -29898,6 +29978,7 @@ class ProgramState {
     }
     this.order = sorted;
     this.nodes = newNodes;
+    this.scripts = scripts;
     for (const nodeId of this.order) {
       const newNode = newNodes.get(nodeId);
       if (invalidatedInput(newNode, invalidatedStreamNames)) {
@@ -29950,14 +30031,12 @@ class ProgramState {
             [...inputArray, this]
           );
         } else {
+          this.changeList.delete(id);
           outputs = new ReceiverEvent(change);
         }
         this.inputArray.set(id, inputArray);
         const maybeValue = outputs;
-        if (maybeValue === void 0) {
-          continue;
-        }
-        if (maybeValue.then || maybeValue[typeKey]) {
+        if (maybeValue !== void 0 && (maybeValue.then || maybeValue[typeKey])) {
           const ev = maybeValue.then ? new PromiseEvent(maybeValue) : maybeValue;
           const newStream = ev.created(this, id);
           this.streams.set(id, newStream);
@@ -29965,9 +30044,12 @@ class ProgramState {
         } else {
           let newStream = new Behavior();
           this.streams.set(id, newStream);
+          if (maybeValue === void 0) {
+            continue;
+          }
           const resolved = this.resolved.get(id);
           if (!resolved || resolved.value !== maybeValue) {
-            if (maybeValue.constructor === prototypicalGeneratorFunction.constructor) {
+            if (isGenerator(maybeValue)) {
               maybeValue.done = false;
             }
             this.setResolved(id, { value: maybeValue, time: this.time });
@@ -29981,10 +30063,13 @@ class ProgramState {
       const evStream = outputs;
       evStream.evaluate(this, node, inputArray, lastInputArray);
     }
-    for (let [varName, stream] of this.streams) {
-      stream.conclude(this, varName);
+    for (let id of this.order) {
+      const stream = this.streams.get(id);
+      if (!stream) {
+        continue;
+      }
+      stream.conclude(this, id);
     }
-    this.changeList.clear();
     return this.updated;
   }
   evalCode(arg) {
@@ -30068,18 +30153,102 @@ class ProgramState {
       this.noTickingEvaluator();
     }
   }
+  setResolvedForSubgraph(varName, value) {
+    this.setResolved(varName, value);
+    this.inputArray.set(varName, []);
+    this.streams.set(varName, new Behavior());
+  }
+  merge(func) {
+    let scripts = this.scripts;
+    const { output } = getFunctionBody(func.toString(), true);
+    this.setupProgram([...scripts, output]);
+  }
+  renkonify(func, optSystem) {
+    const programState = new ProgramState(0, optSystem);
+    const { params, returnArray, output } = getFunctionBody(func.toString(), false);
+    console.log(params, returnArray, output, this);
+    const self = this;
+    const receivers = params.map((r) => `const ${r} = undefined;`).join("\n");
+    programState.setupProgram([receivers, output]);
+    function generator(params2) {
+      const gen = renkonBody(params2);
+      gen.done = false;
+      return Events.create(self).next(gen);
+    }
+    async function* renkonBody(args) {
+      let lastYielded = void 0;
+      for (let key in args) {
+        programState.setResolvedForSubgraph(
+          key,
+          { value: args[key], time: self.time }
+        );
+      }
+      while (true) {
+        programState.evaluate(self.time);
+        const result = {};
+        const resultTest = [];
+        if (returnArray) {
+          for (const n of returnArray) {
+            const v = programState.resolved.get(n);
+            resultTest.push(v ? v.value : void 0);
+            if (v && v.value !== void 0) {
+              result[n] = v.value;
+            }
+          }
+        }
+        yield !self.equals(lastYielded, resultTest) ? result : void 0;
+        lastYielded = resultTest;
+      }
+    }
+    return generator;
+  }
+  renkonify2(func, optSystem) {
+    const programState = new ProgramState(0, optSystem);
+    const { params, returnArray, output } = getFunctionBody(func.toString(), false);
+    const receivers = params.map((r) => `const ${r} = undefined;`).join("\n");
+    programState.setupProgram([receivers, output]);
+    programState.exports = returnArray || void 0;
+    programState.imports = params;
+    return programState;
+  }
+  evaluateSubProgram(programState, params) {
+    for (let key in params) {
+      programState.registerEvent(key, params[key]);
+    }
+    programState.evaluate(this.time);
+    if (!programState.updated) {
+      return void 0;
+    }
+    const result = {};
+    if (programState.exports) {
+      for (const n of programState.exports) {
+        const v = programState.resolved.get(n);
+        if (v && v.value !== void 0) {
+          result[n] = v.value;
+        }
+      }
+    }
+    return result;
+  }
   spaceURL(partialURL) {
     var _a3, _b2;
-    const loc = window.location.toString();
-    const semi = loc.indexOf(";");
-    if (semi < 0) {
-      const base22 = ((_b2 = (_a3 = import.meta) == null ? void 0 : _a3.env) == null ? void 0 : _b2.DEV) ? "../" : "../";
-      console.log(base22 + partialURL);
-      return base22 + partialURL;
+    const loc = window.location;
+    const maybeSpace = loc.host === "substrate.home.arpa" && loc.pathname.includes("/space");
+    if (maybeSpace) {
+      if (partialURL.startsWith("/")) {
+        return `${loc.origin}${partialURL}`;
+      }
+      const index = loc.pathname.lastIndexOf("/");
+      const basepath = index >= 0 ? loc.pathname.slice(0, index) : loc.pathname;
+      return `${loc.origin}${basepath}/${partialURL}`;
     }
-    const index = loc.lastIndexOf("/");
-    let base2 = index >= 0 ? loc.slice(0, index) : loc;
-    return `${base2}/${partialURL}`;
+    if (partialURL.startsWith("/")) {
+      const index = loc.pathname.lastIndexOf("/");
+      const basepath = index >= 0 ? loc.pathname.slice(0, index) : loc.pathname;
+      return `${loc.origin}${basepath}${partialURL}`;
+    }
+    const base2 = ((_b2 = (_a3 = import.meta) == null ? void 0 : _a3.env) == null ? void 0 : _b2.DEV) ? "../" : "../";
+    return base2 + partialURL;
   }
   inspector(flag, dom) {
     showInspector(this, flag === void 0 ? true : flag, dom);
@@ -30268,7 +30437,9 @@ function resizeHandler() {
     dock.style.left = `${window.innerWidth - 80}px`;
   }
 }
-function view(optApp) {
+function view(opt) {
+  const app = opt == null ? void 0 : opt.app;
+  const noTicking = opt == null ? void 0 : opt.noTicking;
   const url = new URL(window.location.toString());
   let maybeDoc = url.searchParams.get("doc");
   let semi;
@@ -30280,7 +30451,7 @@ function view(optApp) {
   }
   let hideEditor = url.searchParams.get("hideEditor");
   const renkon = document.body.querySelector("#renkon");
-  const programState = new ProgramState(Date.now(), optApp);
+  const programState = new ProgramState(Date.now(), app, noTicking);
   window.programState = programState;
   let { dock, editorView } = createEditorDock(renkon, programState);
   if (hideEditor) {

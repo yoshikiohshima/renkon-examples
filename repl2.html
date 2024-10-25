@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"> 
+  </head>
+  <body>
+    <div id="renkon">
+        <script type="reactive">
+            const {ReflectCommands} = import(Renkon.spaceURL("/tool-call/js/commands.js"))
+            const {h, render, html} = import(Renkon.spaceURL("./preact.standalone.module.js"));
+
+            const globalId = Behaviors.collect(0, addRowRequest, (old, _ev) => old + 1);
+
+            const addRowRequest = Events.receiver();
+            const deleteRowRequest = Events.receiver();
+            const commandSelectRequest = Events.receiver();
+            const doRequest = Events.receiver();
+            const paramChangeRequest = Events.receiver();
+            const runnerResult = Events.receiver();
+
+            const data = Behaviors.collect(
+                [],
+                Events.or(addRowRequest, deleteRowRequest, commandSelectRequest, paramChangeRequest, runnerResult),
+                (current, request) => {
+                    console.log("request", request);
+                    if (request.type === "addRow") {
+                        return [...current, rowData(globalId)];
+                    }
+                    if (request.type === "deleteRow") {
+                        const index = current.find((row) => row.id === request.id);
+                        if (index < 0) {return current}
+                        return [...current].splice(index, 1);
+                    }
+                    if (request.type === "commandSelected") {
+                        const index = current.findIndex((row) => `select-${row.id}` === request.id);
+                        const result = [...current];
+                        const def = reflectResponse[request.value];
+                        const row = rowData(globalId, def);
+                        result[index] = row;
+                        return result;
+                    }
+                    if (request.type === "paramChange") {
+                        const index = current.findIndex((row) => `${row.id}` === request.id);
+                        const data = current[index];
+                        const pIndex = data.parameters.findIndex((p) => p.key === request.paramName);
+                        if (pIndex < 0) {return;}
+                        data.parameters[pIndex].value = request.value;
+                        return [...current];
+                    }
+                    if (request.type === "runnerResult") {
+                      const index = current.findIndex((row) => `${row.id}` === request.value.id);
+                      if (index < 0) {return;}
+                      const data = current[index];
+                      data.output = request.value.response;
+                      return [...current];
+                    }
+                });
+
+            const rowData = (id, def) => {
+                let params = [];
+                if (def) {
+                    params = Object.keys(def.parameters).map((key) => {
+                        return {key, spec: def.parameters[key], value: ""};
+                    });
+                }
+                return {id: `${id}`, def, parameters: params};
+            }
+
+            const paramChange = (evt) => {
+                const input = evt.target;
+                const inputMatch = /param-([0-9]+)/.exec(input.id);
+                const id = inputMatch[1];
+                const match = /paramName-(.*)/.exec(input.name);
+                const paramName = match[1];
+                Events.send(paramChangeRequest, {type: "paramChange", id, paramName, value: input.value});
+            }
+
+            const parameterMaker = (param, id) => {
+                return html`<div>
+                   <label for="param-${param.key}">${param.key}:</label>
+                   <input oninput=${paramChange} type="text" id="param-${id}" name="paramName-${param.key}" value="${param.value}"></input>
+                 </div>`;
+            }
+
+            const paramsContainerMaker = (id, params) => {
+                const list = params ? params.map((p) => parameterMaker(p, id)) : [];
+                return html`<div id="params-container-${id}">${list}</div>`;
+            }
+
+            const commandSelected = (evt) => {
+                Events.send(commandSelectRequest, {type: "commandSelected", id: evt.target.id, value: evt.target.value})
+            }
+
+            const selector = (id, list) => {
+                const domList = [html`<option value="-select-">-select-</option>`, ...list.map((key) => html`<option value="${key}">${key}</option>`)];
+                return html`<select oninput=${commandSelected} id="select-${id}" name="${id}">${domList}</select>`;
+            }
+
+            const createRowPressed = (evt) => {
+                Events.send(addRowRequest, {type: "addRow"});
+            }
+
+            const doPressed = (evt) => {
+                Events.send(doRequest, {type: "doRequest", id: evt.target.id});
+            }
+
+            const createDoButton = (id) => {
+                return html`<button onclick=${doPressed} id="do-${id}">Do</button>`;
+            }
+
+            const createOutput = (id, data) => {
+                const v = data === undefined ? "" : JSON.stringify(data);
+                return html`<textarea id="output-${id}" class="output">${`${v}`}</textarea>`;
+            }
+
+            const runner = Events.collect(
+                undefined,
+                doRequest,
+                (_, doRequest) => {
+                    const match = /do-([0-9]+)/.exec(doRequest.id)
+                    const id = match[1];
+                    const entry = data.find((datum) => datum.id === id);
+                    if (!entry) {return;}
+                    const args = collectArgs(entry);
+                    const cmd = reflectResponse[entry.def.name];
+                    return {id, response: cmd.run(args)};
+            });
+
+            const resolvedRunner = Events.resolvePart(runner.response, runner);
+            console.log("resolvedRunner", resolvedRunner);
+            const runnerSender = ((resolvedRunner) => {
+              console.log("result", resolvedRunner);
+              Events.send(runnerResult, {type: "runnerResult", value: resolvedRunner})
+            })(resolvedRunner);
+
+            const collectArgs = (entry) => {
+                let result = {};
+                entry.parameters.forEach((param) => {
+                    result[param.key] = param.value;
+                });
+                return result;
+            }
+
+            const rowButton = html`<button onclick=${createRowPressed} id="createRow">add</button>`;
+
+            const rows = data.map((datum) => {
+                const list = Object.keys(reflectResponse);
+                const id = datum.id;
+                const sel = selector(id, list);
+                const params = paramsContainerMaker(id, datum.parameters || []);
+
+                const doButton = createDoButton(id);
+
+                const output = createOutput(id, datum.output);
+
+                return h("div", {id: `row-${id}`, class: "commandRow"}, sel, params, doButton, output);
+            });
+
+            const doms = [...rows, rowButton];
+            render(doms, document.querySelector("#container"));
+
+            const reflectResponse = Behaviors.collect(new ReflectCommands("/").reflect(), doRequest, (_, request) => _);
+
+            console.log("reflectResponse", reflectResponse);
+      </script>
+        <div id="container" style="height: 100%"></div>
+        <style>
+            .commandRow {
+                display: flex;
+                border: 1px solid black;
+            }
+
+            .output {
+                margin-left: 100px;
+                flex-grow: 1;
+            }
+        </style>
+    </div>
+    <script type="module">
+      import {view} from "/renkon/renkon.js";
+      view();
+    </script>
+  </body>
+</html>

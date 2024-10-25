@@ -39,12 +39,14 @@
 
         const audioEnabled = Behaviors.collect(true, muteButton, (a, b) => !a);
 
+          
+
         const localMedia = ((bridgeModule, sessionSpec) => {
           return bridgeModule.initLocalMedia(sessionSpec).then((media) => {
             media.ondevicechange = () => Events.send(deviceChange, media.audioDevices);
             return media;
           });
-        })(bridgeModule, sessionSpec, Events.click("logo"));
+        })(bridgeModule, sessionSpec, Events.listener(document.querySelector("#logo"), "click", (evt) => evt);
 
         const formatTime = bridgeModule.formatTime;
         const ev = Events.next(bridge());

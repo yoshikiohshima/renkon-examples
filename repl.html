@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"> 
+  </head>
+  <body>
+    <div id="renkon">
+        <script type="reactive">
+            const {ReflectCommands} = import(Renkon.spaceURL("/tool-call/js/commands.js"))
+            const {parse} = import(Renkon.spaceURL("./shell-parse.js"));
+            const {h, render, html} = import(Renkon.spaceURL("./preact.standalone.module.js"));
+
+            const globalId = Behaviors.collect(0, Events.or(addRowRequest, newParamRequest), (old, _ev) => old + 1);
+
+            const addRowRequest = Events.receiver();
+            const deleteRowRequest = Events.receiver();
+            const newParamRequest = Events.receiver();
+            const commandSelectRequest = Events.receiver();
+            const doRequest = Events.receiver();
+            const paramChangeRequest = Events.receiver();
+
+            const data = Behaviors.collect(
+                [],
+                Events.or(addRowRequest, deleteRowRequest, commandSelectRequest, paramChangeRequest),
+                (current, request) => {
+                    if (request.type === "addRow") {
+                        return [...current, rowData(globalId)];
+                    }
+                    if (request.type === "deleteRow") {
+                        const index = current.find((row) => row.id === request.id);
+                        if (index < 0) {return current}
+                        return [...current].splice(index, 1);
+                    }
+                    if (request.type === "commandSelected") {
+                        const index = current.findIndex((row) => `select-${row.id}` === request.id);
+                        const result = [...current];
+                        const def = reflectResponse[request.value];
+                        const row = rowData(globalId, def);
+                        result[index] = row;
+                        return result;
+                    }
+                    if (request.type === "paramChange") {
+                        const index = current.findIndex((row) => `${row.id}` === request.id);
+                        const data = current[index];
+                        const pIndex = data.parameters.findIndex((p) => p.key === request.paramName);
+                        if (pIndex < 0) {return;}
+                        data.parameters[pIndex].value = request.value;
+                        return [...current];
+                    }
+                });
+
+            const rowData = (id, def) => {
+                let params = [];
+                if (def) {
+                    params = Object.keys(def.parameters).map((key) => {
+                        return {key, spec: def.parameters[key], value: "foo"};
+                    });
+                }
+                return {id: `${id}`, def, parameters: params};
+            }
+
+            const paramsData = (id, def) => {
+                return def.parameters;
+            }
+
+            const paramChange = (evt) => {
+                const input = evt.target;
+                const inputMatch = /param-([0-9]+)/.exec(input.id);
+                const id = inputMatch[1];
+                const match = /paramName-(.*)/.exec(input.name);
+                const paramName = match[1];
+                Events.send(paramChangeRequest, {type: "paramChange", id, paramName, value: input.value});
+            }
+
+            const parameterMaker = (param, id) => {
+                return html`<div>
+                   <label for="param-${param.key}">${param.key}:</label>
+                   <input oninput=${paramChange} type="text" id="param-${id}" name="paramName-${param.key}" value="${param.value}"></input>
+                 </div>`;
+            }
+
+            const paramsContainerMaker = (id, params) => {
+                const list = params ? params.map((p) => parameterMaker(p, id)) : [];
+                return html`<div id="params-container-${id}">${list}</div>`;
+            }
+
+            const commandSelected = (evt) => {
+                Events.send(commandSelectRequest, {type: "commandSelected", id: evt.target.id, value: evt.target.value})
+            }
+
+            const selector = (id, list) => {
+                const domList = list.map((key) => html`<option value="${key}">${key}</option>`);
+                return html`<select oninput=${commandSelected} id="select-${id}" name="${id}">${domList}</select>`;
+            }
+
+            const createRowPressed = (evt) => {
+                Events.send(addRowRequest, {type: "addRow"});
+            }
+
+            const doPressed = (evt) => {
+                Events.send(doRequest, {type: "doRequest", id: evt.target.id});
+            }
+
+            const createRowButton = () => {
+                return html`<button onclick=${createRowPressed} id="createRow">add</button>`;
+            }
+
+            const createDoButton = (id) => {
+                return html`<button onclick=${doPressed} id="do-${id}">Do</button>`;
+            }
+
+            const createOutput = (id) => {
+                return html`<textarea id="output-${id}" class="output"></textarea>`;
+            }
+
+            const run = Events.collect(
+                undefined,
+                doRequest,
+                (_, request) => {
+                    const match = /do-([0-9]+)/.exec(request.id)
+                    const id = match[1];
+                    const entry = data.find((datum) => datum.id === id);
+                    if (!entry) {return;}
+                    const args = collectArgs(entry);
+                    console.log(request, id, args);
+                    const cmd = reflectResponse[entry.def.name];
+                    return console.log("cmd.run", args);
+                });
+
+            const collectArgs = (entry) => {
+                let result = {};
+                entry.parameters.forEach((param) => {
+                    result[param.key] = param.value;
+                });
+                return result;
+            }
+
+            /*
+              const [command, ...args] = commandAndArgs
+              const cmd = reflectResonse[command]
+              return cmd.run(Object.fromEntries(args.map(arg => arg.split('='))))
+              })(reflectResponse, commandAndArgs);
+              */
+
+            const init = createRowButton();
+
+            const rows = data.map((datum) => {
+                const list = Object.keys(reflectResponse);
+                const id = datum.id;
+                const sel = selector(id, list);
+                const params = paramsContainerMaker(id, datum.parameters || []);
+
+                const doButton = createDoButton(id);
+
+                const output = createOutput(id);
+
+                return h("div", {id: `row-${id}`, class: "commandRow"}, sel, params, doButton, output);
+            });
+
+            const doms = [...rows, init];
+
+            render(doms, document.querySelector("#container"));
+
+            const reflectResponse = JSON.parse('{"airoboros-l2-13b-2.2:completion":{"name":"airoboros-l2-13b-2.2:completion","parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"def":{"parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"model":{"type":"string"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"returns":{"choices":{"type":"[]object"},"created":{"type":"int"},"id":{"type":"string"},"usage":{"type":"object"}},"run":{"http":{"parameters":{"best_of":{"path":"request.body.best_of"},"echo":{"path":"request.body.echo"},"frequency_penalty":{"path":"request.body.frequency_penalty"},"logit_bias":{"path":"request.body.logit_bias"},"logprobs":{"path":"request.body.logprobs"},"max_tokens":{"path":"request.body.max_tokens"},"model":{"path":"request.body.model"},"n":{"path":"request.body.n"},"presence_penalty":{"path":"request.body.presence_penalty"},"prompt":{"path":"request.body.prompt"},"stop":{"path":"request.body.stop"},"temperature":{"path":"request.body.temperature"},"top_p":{"path":"request.body.top_p"}},"returns":{"choices":{"path":"response.body.choices"},"created":{"path":"response.body.created"},"id":{"path":"response.body.id"},"usage":{"path":"response.body.usage"}},"request":{"url":"https://substrate.home.arpa/airoboros-l2-13b-2.2/v1/completions","method":"POST","headers":{"Accept":["application/json"],"Content-Type":["application/json"]},"body":{}}},"bind":{"parameters":{"model":"/res/model/huggingface/local"}}}}},"diarizer:diarize":{"name":"diarizer:diarize","parameters":{"audio_data":{"type":"string"}},"def":{"parameters":{"audio_data":{"type":"string"}},"returns":{"timespans":{"type":"object"}},"run":{"http":{"parameters":{"audio_data":{"path":"request.body.audio_data"}},"returns":{"timespans":{"path":"response.body.timespans"}},"request":{"url":"https://substrate.home.arpa/diarizer/v1/diarize","method":"POST","headers":{"Content-Type":["application/json"]},"body":{}}},"bind":{}}}},"eval":{"name":"eval","parameters":{"expression":{"type":"string"}},"def":{"description":"Evaluate a CUE expression","parameters":{"expression":{"type":"string"}},"returns":{"source":{"type":"string"}},"run":{"http":{"parameters":{"expression":{"path":"request.body.parameters.expression"}},"returns":{"source":{"path":"response.body.source"}},"request":{"url":"https://substrate.home.arpa/","method":"POST","headers":{"Content-Type":["application/json"]},"body":{"command":"eval","parameters":{}}}}}}},"faster-whisper:transcribe-data":{"name":"faster-whisper:transcribe-data","parameters":{"audio_data":{"type":"string"},"audio_metadata":{"type":"object"},"source_language":{"type":"string"},"task":{"type":"string"}},"def":{"parameters":{"audio_data":{"type":"string"},"audio_metadata":{"type":"object"},"source_language":{"type":"string"},"task":{"type":"string"}},"returns":{"duration":{"type":"float"},"segments":{"type":"object"},"source_language":{"type":"string"},"source_language_prob":{"type":"float"},"target_language":{"type":"string"}},"run":{"http":{"parameters":{"audio_data":{"path":"request.body.audio_data"},"audio_metadata":{"path":"request.body.audio_metadata"},"source_language":{"path":"request.body.source_language"},"task":{"path":"request.body.task"}},"returns":{"duration":{"path":"response.body.duration"},"segments":{"path":"response.body.segments"},"source_language":{"path":"response.body.source_language"},"source_language_prob":{"path":"response.body.source_language_prob"},"target_language":{"path":"response.body.target_language"}},"request":{"url":"https://substrate.home.arpa/faster-whisper/v1/transcribe","method":"POST","headers":{"Content-Type":["application/json"]},"body":{}}},"bind":{}}}},"faster-whisper:transcribe-url":{"name":"faster-whisper:transcribe-url","parameters":{"audio_metadata":{"type":"object"},"audio_url":{"type":"string"},"source_language":{"type":"string"},"task":{"type":"string"}},"def":{"parameters":{"audio_metadata":{"type":"object"},"audio_url":{"type":"string"},"source_language":{"type":"string"},"task":{"type":"string"}},"returns":{"duration":{"type":"float"},"segments":{"type":"object"},"source_language":{"type":"string"},"source_language_prob":{"type":"float"},"target_language":{"type":"string"}},"run":{"http":{"parameters":{"audio_metadata":{"path":"request.body.audio_metadata"},"audio_url":{"path":"request.body.audio_url"},"source_language":{"path":"request.body.source_language"},"task":{"path":"request.body.task"}},"returns":{"duration":{"path":"response.body.duration"},"segments":{"path":"response.body.segments"},"source_language":{"path":"response.body.source_language"},"source_language_prob":{"path":"response.body.source_language_prob"},"target_language":{"path":"response.body.target_language"}},"request":{"url":"https://substrate.home.arpa/faster-whisper/v1/transcribe","method":"POST","headers":{"Content-Type":["application/json"]},"body":{}}},"bind":{}}}},"links:query":{"name":"links:query","parameters":{},"def":{"description":"List links","returns":{"links":{"type":"links.Links"}},"run":{"http":{"returns":{"links":{"path":"response.body.links"}},"request":{"url":"https://substrate.home.arpa/","method":"POST","headers":{"Content-Type":["application/json"]},"body":{"command":"links:query","parameters":{}}}}}}},"llama-3-70b-instruct-awq:completion":{"name":"llama-3-70b-instruct-awq:completion","parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"def":{"parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"model":{"type":"string"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"returns":{"choices":{"type":"[]object"},"created":{"type":"int"},"id":{"type":"string"},"usage":{"type":"object"}},"run":{"http":{"parameters":{"best_of":{"path":"request.body.best_of"},"echo":{"path":"request.body.echo"},"frequency_penalty":{"path":"request.body.frequency_penalty"},"logit_bias":{"path":"request.body.logit_bias"},"logprobs":{"path":"request.body.logprobs"},"max_tokens":{"path":"request.body.max_tokens"},"model":{"path":"request.body.model"},"n":{"path":"request.body.n"},"presence_penalty":{"path":"request.body.presence_penalty"},"prompt":{"path":"request.body.prompt"},"stop":{"path":"request.body.stop"},"temperature":{"path":"request.body.temperature"},"top_p":{"path":"request.body.top_p"}},"returns":{"choices":{"path":"response.body.choices"},"created":{"path":"response.body.created"},"id":{"path":"response.body.id"},"usage":{"path":"response.body.usage"}},"request":{"url":"https://substrate.home.arpa/llama-3-70b-instruct-awq/v1/completions","method":"POST","headers":{"Accept":["application/json"],"Content-Type":["application/json"]},"body":{}}},"bind":{"parameters":{"model":"/res/model/huggingface/local"}}}}},"llama-3-8b-instruct-awq:completion":{"name":"llama-3-8b-instruct-awq:completion","parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"def":{"parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"model":{"type":"string"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"returns":{"choices":{"type":"[]object"},"created":{"type":"int"},"id":{"type":"string"},"usage":{"type":"object"}},"run":{"http":{"parameters":{"best_of":{"path":"request.body.best_of"},"echo":{"path":"request.body.echo"},"frequency_penalty":{"path":"request.body.frequency_penalty"},"logit_bias":{"path":"request.body.logit_bias"},"logprobs":{"path":"request.body.logprobs"},"max_tokens":{"path":"request.body.max_tokens"},"model":{"path":"request.body.model"},"n":{"path":"request.body.n"},"presence_penalty":{"path":"request.body.presence_penalty"},"prompt":{"path":"request.body.prompt"},"stop":{"path":"request.body.stop"},"temperature":{"path":"request.body.temperature"},"top_p":{"path":"request.body.top_p"}},"returns":{"choices":{"path":"response.body.choices"},"created":{"path":"response.body.created"},"id":{"path":"response.body.id"},"usage":{"path":"response.body.usage"}},"request":{"url":"https://substrate.home.arpa/llama-3-8b-instruct-awq/v1/completions","method":"POST","headers":{"Accept":["application/json"],"Content-Type":["application/json"]},"body":{}}},"bind":{"parameters":{"model":"/res/model/huggingface/local"}}}}},"llama-3-8b-instruct:completion":{"name":"llama-3-8b-instruct:completion","parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"def":{"parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"model":{"type":"string"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"returns":{"choices":{"type":"[]object"},"created":{"type":"int"},"id":{"type":"string"},"usage":{"type":"object"}},"run":{"http":{"parameters":{"best_of":{"path":"request.body.best_of"},"echo":{"path":"request.body.echo"},"frequency_penalty":{"path":"request.body.frequency_penalty"},"logit_bias":{"path":"request.body.logit_bias"},"logprobs":{"path":"request.body.logprobs"},"max_tokens":{"path":"request.body.max_tokens"},"model":{"path":"request.body.model"},"n":{"path":"request.body.n"},"presence_penalty":{"path":"request.body.presence_penalty"},"prompt":{"path":"request.body.prompt"},"stop":{"path":"request.body.stop"},"temperature":{"path":"request.body.temperature"},"top_p":{"path":"request.body.top_p"}},"returns":{"choices":{"path":"response.body.choices"},"created":{"path":"response.body.created"},"id":{"path":"response.body.id"},"usage":{"path":"response.body.usage"}},"request":{"url":"https://substrate.home.arpa/llama-3-8b-instruct/v1/completions","method":"POST","headers":{"Accept":["application/json"],"Content-Type":["application/json"]},"body":{}}},"bind":{"parameters":{"model":"/res/model/huggingface/local"}}}}},"mixtral-8x7b-instruct:completion":{"name":"mixtral-8x7b-instruct:completion","parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"def":{"parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"model":{"type":"string"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"returns":{"choices":{"type":"[]object"},"created":{"type":"int"},"id":{"type":"string"},"usage":{"type":"object"}},"run":{"http":{"parameters":{"best_of":{"path":"request.body.best_of"},"echo":{"path":"request.body.echo"},"frequency_penalty":{"path":"request.body.frequency_penalty"},"logit_bias":{"path":"request.body.logit_bias"},"logprobs":{"path":"request.body.logprobs"},"max_tokens":{"path":"request.body.max_tokens"},"model":{"path":"request.body.model"},"n":{"path":"request.body.n"},"presence_penalty":{"path":"request.body.presence_penalty"},"prompt":{"path":"request.body.prompt"},"stop":{"path":"request.body.stop"},"temperature":{"path":"request.body.temperature"},"top_p":{"path":"request.body.top_p"}},"returns":{"choices":{"path":"response.body.choices"},"created":{"path":"response.body.created"},"id":{"path":"response.body.id"},"usage":{"path":"response.body.usage"}},"request":{"url":"https://substrate.home.arpa/mixtral-8x7b-instruct/v1/completions","method":"POST","headers":{"Accept":["application/json"],"Content-Type":["application/json"]},"body":{}}},"bind":{"parameters":{"model":"/res/model/huggingface/local"}}}}},"new:instance":{"name":"new:instance","parameters":{"parameters":{"type":"map[string]string"},"service":{"type":"string"}},"def":{"description":"Spawn a new instance of the given service and parameters. Return the location of the new service.","parameters":{"parameters":{"type":"map[string]string"},"service":{"type":"string"}},"returns":{"location":{"type":"string"}},"run":{"http":{"parameters":{"parameters":{"path":"request.body.parameters.parameters"},"service":{"path":"request.body.parameters.service"}},"returns":{"location":{"path":"response.body.location"}},"request":{"url":"https://substrate.home.arpa/","method":"POST","headers":{"Content-Type":["application/json"]},"body":{"command":"new:instance","parameters":{}}}}}}},"phi-2:completion":{"name":"phi-2:completion","parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"def":{"parameters":{"best_of":{"type":"int"},"echo":{"type":"bool"},"frequency_penalty":{"type":"float"},"logit_bias":{"type":"map[string]int"},"logprobs":{"type":"int"},"max_tokens":{"type":"int"},"model":{"type":"string"},"n":{"type":"int"},"presence_penalty":{"type":"float"},"prompt":{"type":"string"},"stop":{"type":"[]string"},"temperature":{"type":"float"},"top_p":{"type":"float"}},"returns":{"choices":{"type":"[]object"},"created":{"type":"int"},"id":{"type":"string"},"usage":{"type":"object"}},"run":{"http":{"parameters":{"best_of":{"path":"request.body.best_of"},"echo":{"path":"request.body.echo"},"frequency_penalty":{"path":"request.body.frequency_penalty"},"logit_bias":{"path":"request.body.logit_bias"},"logprobs":{"path":"request.body.logprobs"},"max_tokens":{"path":"request.body.max_tokens"},"model":{"path":"request.body.model"},"n":{"path":"request.body.n"},"presence_penalty":{"path":"request.body.presence_penalty"},"prompt":{"path":"request.body.prompt"},"stop":{"path":"request.body.stop"},"temperature":{"path":"request.body.temperature"},"top_p":{"path":"request.body.top_p"}},"returns":{"choices":{"path":"response.body.choices"},"created":{"path":"response.body.created"},"id":{"path":"response.body.id"},"usage":{"path":"response.body.usage"}},"request":{"url":"https://substrate.home.arpa/phi-2/v1/completions","method":"POST","headers":{"Accept":["application/json"],"Content-Type":["application/json"]},"body":{}}},"bind":{"parameters":{"model":"/res/model/huggingface/local"}}}}},"seamlessm4t:transcribe-data":{"name":"seamlessm4t:transcribe-data","parameters":{"audio_data":{"type":"string"},"audio_metadata":{"type":"object"},"source_language":{"type":"string"},"target_language":{"type":"string"}},"def":{"parameters":{"audio_data":{"type":"string"},"audio_metadata":{"type":"object"},"source_language":{"type":"string"},"target_language":{"type":"string"}},"returns":{"duration":{"type":"float"},"segments":{"type":"object"},"source_language":{"type":"string"},"target_language":{"type":"string"}},"run":{"http":{"parameters":{"audio_data":{"path":"request.body.audio_data"},"audio_metadata":{"path":"request.body.audio_metadata"},"source_language":{"path":"request.body.source_language"},"target_language":{"path":"request.body.target_language"}},"returns":{"duration":{"path":"response.body.duration"},"segments":{"path":"response.body.segments"},"source_language":{"path":"response.body.source_language"},"target_language":{"path":"response.body.target_language"}},"request":{"url":"https://substrate.home.arpa/seamlessm4t/v1/transcribe","method":"POST","headers":{"Content-Type":["application/json"]},"body":{}}},"bind":{}}}},"seamlessm4t:transcribe-url":{"name":"seamlessm4t:transcribe-url","parameters":{"audio_metadata":{"type":"object"},"audio_url":{"type":"string"},"source_language":{"type":"string"},"target_language":{"type":"string"}},"def":{"parameters":{"audio_metadata":{"type":"object"},"audio_url":{"type":"string"},"source_language":{"type":"string"},"target_language":{"type":"string"}},"returns":{"duration":{"type":"float"},"segments":{"type":"object"},"source_language":{"type":"string"},"target_language":{"type":"string"}},"run":{"http":{"parameters":{"audio_metadata":{"path":"request.body.audio_metadata"},"audio_url":{"path":"request.body.audio_url"},"source_language":{"path":"request.body.source_language"},"target_language":{"path":"request.body.target_language"}},"returns":{"duration":{"path":"response.body.duration"},"segments":{"path":"response.body.segments"},"source_language":{"path":"response.body.source_language"},"target_language":{"path":"response.body.target_language"}},"request":{"url":"https://substrate.home.arpa/seamlessm4t/v1/transcribe","method":"POST","headers":{"Content-Type":["application/json"]},"body":{}}},"bind":{}}}},"seamlessm4t:translate":{"name":"seamlessm4t:translate","parameters":{"source_language":{"type":"string"},"target_language":{"type":"string"},"text":{"type":"string"}},"def":{"parameters":{"source_language":{"type":"string"},"target_language":{"type":"string"},"text":{"type":"string"}},"returns":{"duration":{"type":"float"},"segments":{"type":"object"},"source_language":{"type":"string"},"target_language":{"type":"string"}},"run":{"http":{"parameters":{"source_language":{"path":"request.body.source_language"},"target_language":{"path":"request.body.target_language"},"text":{"path":"request.body.text"}},"returns":{"duration":{"path":"response.body.duration"},"segments":{"path":"response.body.segments"},"source_language":{"path":"response.body.source_language"},"target_language":{"path":"response.body.target_language"}},"request":{"url":"https://substrate.home.arpa/seamlessm4t/v1/transcribe","method":"POST","headers":{"Content-Type":["application/json"]},"body":{}}},"bind":{}}}},"space:new":{"name":"space:new","parameters":{"force_read_only":{"type":"bool"},"spacespec":{"type":"string"}},"def":{"description":"Make a new space","parameters":{"force_read_only":{"type":"bool"},"spacespec":{"type":"string"}},"returns":{"created_at":{"type":"string"},"space_id":{"type":"string"}},"run":{"http":{"parameters":{"force_read_only":{"path":"request.body.parameters.force_read_only"},"spacespec":{"path":"request.body.parameters.spacespec"}},"returns":{"created_at":{"path":"response.body.created_at"},"space_id":{"path":"response.body.space_id"}},"request":{"url":"https://substrate.home.arpa/","method":"POST","headers":{"Content-Type":["application/json"]},"body":{"command":"space:new","parameters":{}}}}}}},"substrate:space:fork":{"name":"substrate:space:fork","parameters":{"space_base_ref":{"description":"ID of space to fork","type":"string"}},"def":{"description":"Fork an existing space","parameters":{"space_base_ref":{"description":"ID of space to fork","type":"string"}},"returns":{"space":{"description":"ID of space created","type":"string"}},"run":{"http":{"parameters":{"space_base_ref":{"path":"request.body.parameters.space_base_ref"}},"returns":{"space":{"path":"response.body.space"}},"request":{"url":"https://substrate.home.arpa/substrate/v1/spaces","method":"POST"}},"bind":{}}}},"substrate:space:new":{"name":"substrate:space:new","parameters":{},"def":{"description":"Create new space","returns":{"space":{"description":"ID of space created","type":"string"}},"run":{"http":{"returns":{"space":{"path":"response.body.space"}},"request":{"url":"https://substrate.home.arpa/substrate/v1/spaces","method":"POST"}},"bind":{}}}}}');
+
+      </script>
+        <div id="container" style="height: 100%"></div>
+        <style>
+            .commandRow {
+                display: flex;
+                border: 1px solid black;
+            }
+
+            .output {
+                margin-left: 100px;
+                flex-grow: 1;
+            }
+        </style>
+    </div>
+    <script type="module">
+      import {view} from "./dist/renkon.js";
+      view();
+    </script>
+  </body>
+</html>

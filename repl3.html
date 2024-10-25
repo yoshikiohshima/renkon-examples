@@ -1,0 +1,35 @@
+<script>
+    function a(str, value) {
+        return new Promise((resolve) => setTimeout(() => {console.log(str); resolve(value)}, value))
+    }
+
+    Promise.all([a("A", 1000), a("B", 2000)]).then(console.log)
+</script>
+
+
+let r = reflect("/events?data=${space}");
+
+r.ensureStreamNamed("pointerDown");
+r.ensureStreamNamed("audio");
+
+let writePointerDown = r.writerFor("pointerDown") // r knows that it is on /events and knows what functions it'd have.
+let writeAudio = r.find("a function to write events for stream named audio");
+
+writePointerDown({event: pointerDown})
+writePointerDown({events: [pointerDown]})
+// or perhaps an event has to be an object, then passing in an array means to write them as many events
+writePointerDown([pointerDown])
+writePointerDown([pointerDown1, pointerDown2], {atomic: true})
+
+writeAudio({myBinarydata: array}, {binary: "myBinaryData"}) // or 
+
+let queryPointerDown = r.query("pointerDown");
+
+// or
+let query = r.query
+// for some cross cutting case
+
+let [myEvents, metadata] = queryPointerDown();
+let [myEvents, metadata] = queryPointerDown({since: "abc"});
+let [binary, metadata] = query("audio");
+

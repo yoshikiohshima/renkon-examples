@@ -8,7 +8,7 @@
       <script type="reactive">
         const {foo} = import("../component.js");
         const sub = Renkon.renkonify(foo);
-        const {h, render} = import("../preact.standalone.module.js");
+        const {h, render} = import("/preact.standalone.module.js");
         const gen = sub({a: 3, b: 4});
         const value = gen.value;
         const html = value.html;
@@ -19,7 +19,7 @@
       </script>
     </div>
     <script type="module">
-      import {view} from "./src/main.js";
+      import {view} from "/dist/renkon.js";
       view();
     </script>
   </body>
