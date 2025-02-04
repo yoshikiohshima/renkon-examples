@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"> 
+  </head>
+  <body>
+    <div id="renkon">
+      <script type="reactive">
+          let {ReflectCommands} = import("https://substrate.home.arpa/tool-call/js/commands.js")
+          let r = new ReflectCommands('https://substrate.home.arpa/events;data=sp-01JBD43682BG9CKC34N90N5A8A').reflect()
+
+          let m = r['events:write'].run({events: [{fields: {type: "vector_manifold", dimensions: 2, dtype: "float", metric: "l2", foo: "baz"}, conflict_keys: ["type", "dimensions", "dtype", "metric", "foo"]}]});
+          let manifold_id = m.ids[0]
+          console.log(r)
+
+          /*
+          console.log(r['events:write'].run({events: [{fields: {type: "sometype"}, vector: {manifold_id, data: [8, 1]}}]}))
+          console.log(r['events:write'].run({events: [{fields: {field2: "anothervalue"}, vector: {manifold_id, data: [0, 1]}}]}))
+          console.log(r['events:query'].run({vector_limit: 1, vector_in_manifold: manifold_id, vector_near: [1, 1]}))
+          */
+      </script>
+    </div>
+    <script type="module">
+      import {view} from "./dist/renkon.js";
+      view();
+    </script>
+  </body>
+</html>

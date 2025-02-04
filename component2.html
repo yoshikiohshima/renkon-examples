@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"> 
+  </head>
+  <body>
+    <div id="renkon">
+      <script type="reactive">
+          const {h, render} = import("/preact.standalone.module.js");
+
+          const {foo} = import("../component2.js");
+          const component = Renkon.component(foo);
+
+          const timer = Events.timer(100);
+          const instances = [2, 3].map((m, i) => {
+              return component({a: timer, multiplier: m, h}, `${i}`);
+          });
+          const htmls = instances.map((i) => i.html);
+      </script>
+      <script type="renkon-jsx" style="height: 100px">
+        <div>{htmls}</div>
+      </script>
+    </div>
+    <script type="module">
+      import {view} from "/dist/renkon.js";
+      view();
+    </script>
+  </body>
+</html>
