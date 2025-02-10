@@ -126,7 +126,7 @@
                     return {id, response: cmd.run(args)};
             });
 
-            const resolvedRunner = Events.resolvePart(runner.response, runner);
+            const resolvedRunner = Events.resolvePart(runner);
             console.log("resolvedRunner", resolvedRunner);
             const runnerSender = ((resolvedRunner) => {
               console.log("result", resolvedRunner);

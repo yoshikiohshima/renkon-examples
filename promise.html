@@ -6,21 +6,23 @@
     <body>
         <div id="renkon">
             <script type="reactive">
-                const reflectResponse = new Promise((resolve) => setTimeout(() => resolve(1000), 1000));
-                const args = {a: 100, b: 200};
+                const promises = {a: new Promise((resolve) => setTimeout(() => resolve(1000), 1000)), b: new Promise((resolve) => setTimeout(() => resolve(2000), 2000)), c: 4000};
 
-                const b = ((reflectResponse) => {
-                    const value = new Promise((resolve) => setTimeout(() => resolve(100), 1000));
+                console.log(promises);
 
-                    return {reflectResponse, value}
-                })(reflectResponse);
+                const resolved = Events.resolvePart(promises);
 
-                const myP = b.value;
+                console.log(resolved);
 
-                const bb = {reflectResponse: b.reflectResponse, value: myP}
+                const promises2 = [new Promise((resolve) => setTimeout(() => resolve(1000), 1000)), new Promise((resolve) => setTimeout(() => resolve(2000), 2000)), 4000, resolved];
 
-                console.log(bb);
-                console.log(b);
+                console.log("pro2", promises2);
+
+                const resolved2 = Events.resolvePart(promises2);
+
+                console.log("res2", resolved2);
+                
+                console.log("start");
             </script>
         </div>
         <script type="module">
