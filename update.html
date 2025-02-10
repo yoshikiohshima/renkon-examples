@@ -9,6 +9,8 @@
                 const promise = new Promise((resolve) => setTimeout(() => resolve(1000), 1000));
 
                 const a = 42;
+
+                const b = undefined;
                 
                 const updater = (() => {
                     Renkon.updateProgram([...Renkon.scripts, "const b = a + 100"]);

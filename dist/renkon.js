@@ -9877,7 +9877,7 @@ class ProgramState {
         this.inputArray.delete(varName);
       }
     }
-    const jsNodes = [];
+    const jsNodes = /* @__PURE__ */ new Map();
     let id = 0;
     for (const script of scripts) {
       if (!script) {
@@ -9885,11 +9885,14 @@ class ProgramState {
       }
       const nodes = parseJavaScript(script, id, false);
       for (const n2 of nodes) {
-        jsNodes.push(n2);
+        if (jsNodes.get(n2.id)) {
+          console.log(`node "${n2.id}" is defined multiple times`);
+        }
+        jsNodes.set(n2.id, n2);
         id++;
       }
     }
-    const translated = jsNodes.map((jsNode) => ({ id: jsNode.id, code: transpileJavaScript(jsNode) }));
+    const translated = [...jsNodes].map(([_id, jsNode]) => ({ id: jsNode.id, code: transpileJavaScript(jsNode) }));
     const evaluated = translated.map((tr) => this.evalCode(tr));
     const sorted = topologicalSort(evaluated);
     const newNodes = /* @__PURE__ */ new Map();
