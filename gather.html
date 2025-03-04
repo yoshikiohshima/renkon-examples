@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"> 
+  </head>
+  <body>
+    <div id="renkon">
+      <script type="reactive">
+          const event_a = Events.timer(1000);
+          const event_b = Events.timer(2500);
+
+          const timer_a = Behaviors.keep(event_a);
+          const timer_b = Behaviors.keep(event_b);
+          
+          const gather1 = Behaviors.gather("timer_");
+          const gather2 = Behaviors.gather("event_");
+          console.log("gather1", gather1);
+          console.log("gather2", gather2);
+      </script>
+    </div>
+    <script type="module">
+      import {view} from "./dist/renkon.js";
+      view();
+    </script>
+  </body>
+</html>
