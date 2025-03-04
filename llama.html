@@ -13,7 +13,6 @@
 
         const abortHandler = Events.listener("#abort", "click", (evt) => evt);
         const abortController = Behaviors.collect(new AbortController(), Events.or(abortHandler, Events.change($responses)), (a, b) => {
-          console.log("reset");
           a.abort(); 
           return new AbortController();
         });
@@ -82,7 +81,7 @@
         render(
           html`<div id="responses" style="display: flex; flex-direction: column">
             ${delayedChunks.map((c) => html`<div class="log">${c}</div>`)}
-          </div>`, document.querySelector("#out"));
+            </div>`, document.querySelector("#out"));
 
         const logged = Behaviors.collect("", Events.or(v, abortHandler), (a, b) => {
           if (b.done === undefined) {
