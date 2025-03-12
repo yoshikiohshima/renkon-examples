@@ -6817,7 +6817,7 @@ function findReferences(node, {
     Identifier: identifier
   });
   const forceVars = [];
-  let hasGather = void 0;
+  const extraType = {};
   simple(node, {
     CallExpression(node2) {
       const callee = node2.callee;
@@ -6836,14 +6836,28 @@ function findReferences(node, {
             if (arg.type === "Identifier") {
               forceVars.push(arg);
             }
+          } else if (callee.property.type === "Identifier" && callee.property.name === "_select") {
+            if (node2.arguments[1].type === "Identifier") {
+              const name2 = node2.arguments[1].name;
+              if (/^_[0-9]/.exec(name2)) {
+                forceVars.push(node2.arguments[1]);
+              }
+              extraType["isSelect"] = true;
+            }
           } else if (callee.property.type === "Identifier" && callee.property.name === "gather") {
-            hasGather = node2.arguments[0].value;
+            extraType["gather"] = node2.arguments[0].value;
+          } else if (callee.property.type === "Identifier" && (callee.property.name === "or" || callee.property.name === "_or_index")) {
+            for (const arg of node2.arguments) {
+              if (arg.type === "Identifier") {
+                forceVars.push(arg);
+              }
+            }
           }
         }
       }
     }
   });
-  return [references, forceVars, sendTarget, hasGather];
+  return [references, forceVars, sendTarget, extraType];
 }
 function checkNested(node, baseId) {
   return rewriteNestedCalls(node, baseId);
@@ -6857,7 +6871,7 @@ function rewriteNestedCalls(body, baseId) {
       const isSelectCall = isSelect(node);
       if (isSelectCall) {
         const rewrite = rewriteSelect(node);
-        rewriteSpecs.push(rewrite);
+        rewriteSpecs.unshift(rewrite);
       }
       if (isEvent && !inFunction) {
         rewriteSpecs.push({ start: node.start, end: node.end, name: `_${baseId}_${rewriteSpecs.length}`, type: "range" });
@@ -6944,7 +6958,7 @@ function parseJavaScript(input, initialId, flattened2 = false) {
   for (const decl of decls) {
     id++;
     const b2 = parseProgram(decl);
-    const [references, forceVars, sendTargets, hasGather] = findReferences(b2);
+    const [references, forceVars, sendTargets, extraType] = findReferences(b2);
     checkAssignments(b2, references, input);
     const declarations = findDeclarations(b2, input);
     const rewriteSpecs = flattened2 ? [] : checkNested(b2, id);
@@ -6958,7 +6972,7 @@ function parseJavaScript(input, initialId, flattened2 = false) {
         forceVars,
         sendTargets,
         imports: [],
-        extraType: hasGather ? { "gather": hasGather } : {},
+        extraType,
         // expression: false,
         input: decl
       });
@@ -6966,6 +6980,7 @@ function parseJavaScript(input, initialId, flattened2 = false) {
       let newInput = decl;
       let newPart = "";
       let overridden = false;
+      let again = false;
       for (let i2 = 0; i2 < rewriteSpecs.length; i2++) {
         const spec = rewriteSpecs[i2];
         if (spec.type === "range") {
@@ -6983,17 +6998,20 @@ function parseJavaScript(input, initialId, flattened2 = false) {
           overridden = true;
           newPart += spec.definition + "\n";
         } else if (spec.type === "select") {
-          overridden = true;
+          overridden = false;
           const sub = spec.triggers.map((spec2) => newInput.slice(spec2.start, spec2.end));
           const trigger = `Events._or_index(${sub.join(", ")})`;
           const funcs = spec.funcs.map((spec2) => newInput.slice(spec2.start, spec2.end));
           const init = newInput.slice(spec.init.start, spec.init.end);
           const newNewInput = `const ${declarations[0].name} = ${spec.classType}._select(${init}, ${trigger}, [${funcs}]);`;
-          const parsed = parseJavaScript(newPart + newNewInput, initialId, false);
-          allReferences.push(...parsed);
+          newInput = newNewInput;
+          again = true;
+          id++;
+          break;
         }
       }
-      allReferences.push(...parseJavaScript(`${newPart}${overridden ? "" : "\n" + newInput}`, initialId, true));
+      const parsed = parseJavaScript(`${newPart}${overridden ? "" : "\n" + newInput}`, again ? id - 1 : initialId, !again);
+      allReferences.push(...parsed);
     }
   }
   return allReferences;
@@ -7128,6 +7146,7 @@ function transpileJavaScript(node) {
   output.insertLeft(0, `, outputs: ${JSON.stringify(only)}`);
   output.insertLeft(0, `, inputs: ${JSON.stringify(inputs)}`);
   output.insertLeft(0, `, forceVars: ${JSON.stringify(forceVars)}`);
+  output.insertLeft(0, `, blockId: "${node.blockId}"`);
   output.insertLeft(0, `{id: "${node.id}"`);
   output.insertRight(node.input.length, `
 return ${only};`);
@@ -7200,7 +7219,7 @@ function rewriteRenkonCalls(output, body) {
     }
   });
 }
-const version$1 = "0.3.0";
+const version$1 = "0.3.8";
 const packageJson = {
   version: version$1
 };
@@ -7213,6 +7232,7 @@ const collectType = "CollectType";
 const selectType = "SelectType";
 const promiseType = "PromiseType";
 const behaviorType = "BehaviorType";
+const onceType = "OnceType";
 const orType = "OrType";
 const sendType = "SendType";
 const receiverType = "ReceiverType";
@@ -7366,9 +7386,9 @@ class PromiseEvent extends Stream {
     return this;
   }
 }
-class OrEvent extends Stream {
-  constructor(varNames, useIndex) {
-    super(orType, false);
+class OrStream extends Stream {
+  constructor(varNames, useIndex, isBehavior = false) {
+    super(orType, isBehavior);
     __publicField(this, "varNames");
     __publicField(this, "useIndex");
     this.varNames = varNames;
@@ -7390,6 +7410,9 @@ class OrEvent extends Stream {
   conclude(state, varName) {
     var _a2;
     super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
     if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
       state.resolved.delete(varName);
       return varName;
@@ -7500,6 +7523,33 @@ class ChangeEvent extends Stream {
   conclude(state, varName) {
     var _a2;
     super.conclude(state, varName);
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class OnceEvent extends Stream {
+  constructor(value) {
+    super(onceType, false);
+    __publicField(this, "value");
+    this.value = value;
+  }
+  created(state, id) {
+    state.scratch.set(id, this.value);
+    return this;
+  }
+  ready(node, state) {
+    return state.scratch.get(node.id) !== void 0;
+  }
+  evaluate(state, node, _inputArray, _lastInputArray) {
+    state.setResolved(node.id, { value: this.value, time: state.time });
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    state.scratch.delete(varName);
     if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
       state.resolved.delete(varName);
       return varName;
@@ -9849,21 +9899,26 @@ class Events {
   change(value) {
     return new ChangeEvent(value);
   }
+  once(value) {
+    return new OnceEvent(value);
+  }
   next(generator) {
     return new GeneratorNextEvent(generator);
   }
   or(...varNames) {
-    return new OrEvent(varNames, false);
+    return new OrStream(varNames, false);
   }
   _or_index(...varNames) {
-    return new OrEvent(varNames, true);
+    return new OrStream(varNames, true);
   }
   collect(init, varName, updater) {
     return new CollectStream(init, varName, updater, false);
   }
-  /*map<S, T>(varName:VarName, updater: (arg:S) => T) {
-      return new CollectStream(undefined, varName, (_a, b) => updater(b), false);
-  },*/
+  select(_init, ..._pairs) {
+  }
+  _select(init, varName, updaters) {
+    return new SelectStream(init, varName, updaters, false);
+  }
   send(receiver, value) {
     this.programState.registerEvent(receiver, value);
     return new SendEvent();
@@ -9916,6 +9971,9 @@ class Behaviors {
   }
   _select(init, varName, updaters) {
     return new SelectStream(init, varName, updaters, true);
+  }
+  or(...varNames) {
+    return new OrStream(varNames, false, true);
   }
   gather(regexp) {
     return new GatherStream(regexp, true);
@@ -9993,6 +10051,7 @@ class ProgramState {
     __publicField(this, "updated");
     __publicField(this, "app");
     __publicField(this, "noTicking");
+    __publicField(this, "log");
     __publicField(this, "programStates");
     __publicField(this, "lastReturned");
     __publicField(this, "futureScripts");
@@ -10009,6 +10068,9 @@ class ProgramState {
     this.evaluatorRunning = 0;
     this.updated = false;
     this.app = app;
+    this.log = (...values) => {
+      console.log(...values);
+    };
     this.noTicking = noTicking !== void 0 ? noTicking : false;
     this.programStates = /* @__PURE__ */ new Map();
     this.breakpoints = /* @__PURE__ */ new Set();
@@ -10022,7 +10084,7 @@ class ProgramState {
       this.evaluate(Date.now());
     } catch (e) {
       console.error(e);
-      console.log("stopping animation");
+      this.log("stopping animation");
       window.cancelAnimationFrame(this.evaluatorRunning);
       this.evaluatorRunning = 0;
     }
@@ -10040,8 +10102,20 @@ class ProgramState {
       }
     }, 0);
   }
-  setupProgram(scripts) {
+  setupProgram(scriptsArg) {
     const invalidatedStreamNames = /* @__PURE__ */ new Set();
+    const scripts = scriptsArg.map((s) => {
+      if (typeof s === "string") {
+        return s;
+      }
+      return s.code;
+    });
+    const blockIds = scriptsArg.map((s, i2) => {
+      if (typeof s === "string") {
+        return `${i2}`;
+      }
+      return s.blockId;
+    });
     for (const [varName, stream] of this.streams) {
       if (!stream[isBehaviorKey]) {
         const scratch = this.scratch.get(varName);
@@ -10062,15 +10136,18 @@ class ProgramState {
     }
     const jsNodes = /* @__PURE__ */ new Map();
     let id = 0;
-    for (const script of scripts) {
+    for (let scriptIndex = 0; scriptIndex < scripts.length; scriptIndex++) {
+      const blockId = blockIds[scriptIndex];
+      const script = scripts[scriptIndex];
       if (!script) {
         continue;
       }
       const nodes = parseJavaScript(script, id, false);
       for (const n2 of nodes) {
         if (jsNodes.get(n2.id)) {
-          console.log(`node "${n2.id}" is defined multiple times`);
+          this.log(`node "${n2.id}" is defined multiple times`);
         }
+        n2.blockId = blockId;
         jsNodes.set(n2.id, n2);
         id++;
       }
@@ -10078,14 +10155,13 @@ class ProgramState {
     const translated = [...jsNodes].map(([_id, jsNode]) => ({ id: jsNode.id, code: transpileJavaScript(jsNode) }));
     const evaluated = translated.map((tr) => this.evalCode(tr));
     for (let [id2, node] of jsNodes) {
-      if (!node.extraType["gather"]) {
-        continue;
-      }
-      const r = node.extraType["gather"];
-      const ev = evaluated.find((evaled) => evaled.id === id2);
-      if (ev) {
-        const ins = evaluated.filter((evaled) => new RegExp(r).test(evaled.id)).map((e) => e.id);
-        ev.inputs = ins;
+      if (node.extraType["gather"]) {
+        const r = node.extraType["gather"];
+        const ev = evaluated.find((evaled) => evaled.id === id2);
+        if (ev) {
+          const ins = evaluated.filter((evaled) => new RegExp(r).test(evaled.id)).map((e) => e.id);
+          ev.inputs = ins;
+        }
       }
     }
     const sorted = topologicalSort(evaluated);
@@ -10095,7 +10171,7 @@ class ProgramState {
     }
     const unsortedVarnames = difference(new Set(evaluated.map((e) => e.id)), new Set(sorted));
     for (const u2 of unsortedVarnames) {
-      console.log(`Node ${u2} is not going to be evaluated because it is in a cycle or depends on a undefined variable.`);
+      this.log(`Node ${u2} is not going to be evaluated because it is in a cycle or depends on a undefined variable.`);
     }
     const oldVariableNames = new Set(this.order);
     const newVariableNames = new Set(sorted);
@@ -10133,7 +10209,7 @@ class ProgramState {
       const nodeNames = [...this.nodes].map(([id2, _body]) => id2);
       for (const input of node.inputs) {
         if (!nodeNames.includes(this.baseVarName(input))) {
-          console.log(`Node ${varName} won't be evaluated as it depends on an undefined variable ${input}.`);
+          this.log(`Node ${varName} won't be evaluated as it depends on an undefined variable ${input}.`);
         }
       }
     }
@@ -10206,7 +10282,7 @@ class ProgramState {
       if (trace) {
         trace.push({ id, inputArray, inputs: node.inputs, value: outputs });
         if (this.breakpoints.has(id)) {
-          console.log(trace);
+          this.log(trace);
         }
       }
       const evStream = outputs;
@@ -10466,6 +10542,9 @@ class ProgramState {
   }
   resetBreakpoint() {
     this.breakpoints = /* @__PURE__ */ new Set();
+  }
+  setLog(func) {
+    this.log = func;
   }
 }
 function transpileJSX(code2) {

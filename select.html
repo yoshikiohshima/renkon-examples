@@ -5,13 +5,15 @@
   </head>
   <body>
     <div id="renkon">
-      <script type="reactive">
-            const a = Events.timer(1000);
+        <script type="reactive">
+            const x = Events.receiver();
+            const select = Behaviors.select([10], x, (now, x) => [...now, x]);
+            console.log("select", select);
+            const select2 = Behaviors.select([10],);
+            console.log("select2", select2);
 
-            const b = Events.timer(2500);
-            const select = Behaviors.select([], a, (now, a) => [...now, a], b, (now, b) => [b, ...now]);
-            console.log(select);
-      </script>
+            const action = new Promise((resolve) => setTimeout(() => Events.send(x, 10), 1000));
+        </script>
     </div>
     <script type="module">
       import {view} from "./dist/renkon.js";
