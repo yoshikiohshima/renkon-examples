@@ -14,6 +14,11 @@
                     dom.style.setProperty("width", "100px");
                     dom.style.setProperty("height", "100px");
                     dom.style.setProperty("background-color", timer < 2 ? "blue" : "red");
+                    if (timer === 2) {
+                        dom.style.setProperty("position", "relative");
+                        dom.style.setProperty("top", "-50px");
+                    }
+                    
                     document.querySelector("#renkon").appendChild(dom);
                     return [...now, dom];
                 }
@@ -22,7 +27,7 @@
             const observer = Events.observe((notify) => {
                 const listeners = [];
                 eventSources.forEach((div) => {
-                    const listener = (evt) => notify("click: " + evt.target.id);
+                    const listener = (evt) => {notify("click: " + evt.target.id)};
                     div.addEventListener("click", listener);
                     listeners.push([div, listener]);
                 });
@@ -30,7 +35,7 @@
                     console.log("clean up", eventSources);
                     listeners.forEach(([div, listener]) => div.removeEventListener("click", listener));
                 };
-            });
+            }, {queued: true});
 
             console.log(observer);
 
