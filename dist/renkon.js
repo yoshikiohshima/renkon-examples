@@ -6896,6 +6896,28 @@ function rewriteNestedCalls(body, baseId) {
           }
         }
       }
+      if (isTopArrayDeclaration(node, ancestors) && node.init) {
+        const baseName = `_${baseId}_${rewriteSpecs.length}`;
+        rewriteSpecs.push({ start: node.init.start, end: node.init.end, name: baseName, type: "range" });
+        const id = node.id;
+        const elements = id.elements;
+        for (let ind = 0; ind < elements.length; ind++) {
+          const element = elements[ind];
+          if (!element) {
+            return;
+          }
+          if (element.type === "RestElement") {
+            console.log("unsupported style of assignment");
+            continue;
+          }
+          const p2 = element;
+          if (p2.type === "Identifier") {
+            rewriteSpecs.push({ definition: `const ${p2.name} = ${baseName}[${ind}]`, type: "override" });
+          } else {
+            console.log("unsupported style of assignment");
+          }
+        }
+      }
     }
   });
   return rewriteSpecs;
@@ -6934,6 +6956,9 @@ function hasFunctionDeclaration(_node, ancestors) {
 }
 function isTopObjectDeclaration(node, ancestors) {
   return node.type === "VariableDeclarator" && node.id.type === "ObjectPattern" && ancestors.length === 3;
+}
+function isTopArrayDeclaration(node, ancestors) {
+  return node.type === "VariableDeclarator" && node.id.type === "ArrayPattern" && ancestors.length === 3;
 }
 const acornOptions = {
   ecmaVersion: 13,
@@ -7212,6 +7237,10 @@ function rewriteRenkonCalls(output, body) {
           if (callee.property.type === "Identifier") {
             if (callee.property.name === "collect" || callee.property.name === "_select") {
               quote(node.arguments[1], output);
+            } else if (callee.property.name === "or" || callee.property.name === "_or_index") {
+              for (const arg of node.arguments) {
+                quote(arg, output);
+              }
             }
           }
         }
@@ -7219,7 +7248,7 @@ function rewriteRenkonCalls(output, body) {
     }
   });
 }
-const version$1 = "0.3.8";
+const version$1 = "0.4.0";
 const packageJson = {
   version: version$1
 };
