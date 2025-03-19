@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"> 
+  </head>
+  <body>
+    <div id="renkon">
+        <script type="reactive">
+            const e1 = Events.timer(2000);
+            const e2 = Events.timer(1000);
+
+            const e = Events.some(e1, e2, Events.timer(500) + 100);
+            console.log(e);
+        </script>
+    </div>
+    <script type="module">
+      import {view} from "/dist/renkon.js";
+      view();
+    </script>
+  </body>
+</html>

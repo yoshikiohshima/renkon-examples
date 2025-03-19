@@ -411,7 +411,7 @@ function pushComment(options, array) {
     array.push(comment2);
   };
 }
-var SCOPE_TOP = 1, SCOPE_FUNCTION = 2, SCOPE_ASYNC = 4, SCOPE_GENERATOR = 8, SCOPE_ARROW = 16, SCOPE_SIMPLE_CATCH = 32, SCOPE_SUPER = 64, SCOPE_DIRECT_SUPER = 128, SCOPE_CLASS_STATIC_BLOCK = 256, SCOPE_VAR = SCOPE_TOP | SCOPE_FUNCTION | SCOPE_CLASS_STATIC_BLOCK;
+var SCOPE_TOP = 1, SCOPE_FUNCTION = 2, SCOPE_ASYNC = 4, SCOPE_GENERATOR = 8, SCOPE_ARROW = 16, SCOPE_SIMPLE_CATCH = 32, SCOPE_SUPER = 64, SCOPE_DIRECT_SUPER = 128, SCOPE_CLASS_STATIC_BLOCK = 256, SCOPE_CLASS_FIELD_INIT = 512, SCOPE_VAR = SCOPE_TOP | SCOPE_FUNCTION | SCOPE_CLASS_STATIC_BLOCK;
 function functionFlags(async, generator) {
   return SCOPE_FUNCTION | (async ? SCOPE_ASYNC : 0) | (generator ? SCOPE_GENERATOR : 0);
 }
@@ -474,19 +474,20 @@ prototypeAccessors.inFunction.get = function() {
   return (this.currentVarScope().flags & SCOPE_FUNCTION) > 0;
 };
 prototypeAccessors.inGenerator.get = function() {
-  return (this.currentVarScope().flags & SCOPE_GENERATOR) > 0 && !this.currentVarScope().inClassFieldInit;
+  return (this.currentVarScope().flags & SCOPE_GENERATOR) > 0;
 };
 prototypeAccessors.inAsync.get = function() {
-  return (this.currentVarScope().flags & SCOPE_ASYNC) > 0 && !this.currentVarScope().inClassFieldInit;
+  return (this.currentVarScope().flags & SCOPE_ASYNC) > 0;
 };
 prototypeAccessors.canAwait.get = function() {
   for (var i2 = this.scopeStack.length - 1; i2 >= 0; i2--) {
-    var scope = this.scopeStack[i2];
-    if (scope.inClassFieldInit || scope.flags & SCOPE_CLASS_STATIC_BLOCK) {
+    var ref2 = this.scopeStack[i2];
+    var flags = ref2.flags;
+    if (flags & (SCOPE_CLASS_STATIC_BLOCK | SCOPE_CLASS_FIELD_INIT)) {
       return false;
     }
-    if (scope.flags & SCOPE_FUNCTION) {
-      return (scope.flags & SCOPE_ASYNC) > 0;
+    if (flags & SCOPE_FUNCTION) {
+      return (flags & SCOPE_ASYNC) > 0;
     }
   }
   return this.inModule && this.options.ecmaVersion >= 13 || this.options.allowAwaitOutsideFunction;
@@ -494,8 +495,7 @@ prototypeAccessors.canAwait.get = function() {
 prototypeAccessors.allowSuper.get = function() {
   var ref2 = this.currentThisScope();
   var flags = ref2.flags;
-  var inClassFieldInit = ref2.inClassFieldInit;
-  return (flags & SCOPE_SUPER) > 0 || inClassFieldInit || this.options.allowSuperOutsideMethod;
+  return (flags & SCOPE_SUPER) > 0 || this.options.allowSuperOutsideMethod;
 };
 prototypeAccessors.allowDirectSuper.get = function() {
   return (this.currentThisScope().flags & SCOPE_DIRECT_SUPER) > 0;
@@ -504,10 +504,14 @@ prototypeAccessors.treatFunctionsAsVar.get = function() {
   return this.treatFunctionsAsVarInScope(this.currentScope());
 };
 prototypeAccessors.allowNewDotTarget.get = function() {
-  var ref2 = this.currentThisScope();
-  var flags = ref2.flags;
-  var inClassFieldInit = ref2.inClassFieldInit;
-  return (flags & (SCOPE_FUNCTION | SCOPE_CLASS_STATIC_BLOCK)) > 0 || inClassFieldInit;
+  for (var i2 = this.scopeStack.length - 1; i2 >= 0; i2--) {
+    var ref2 = this.scopeStack[i2];
+    var flags = ref2.flags;
+    if (flags & (SCOPE_CLASS_STATIC_BLOCK | SCOPE_CLASS_FIELD_INIT) || flags & SCOPE_FUNCTION && !(flags & SCOPE_ARROW)) {
+      return true;
+    }
+  }
+  return false;
 };
 prototypeAccessors.inClassStaticBlock.get = function() {
   return (this.currentVarScope().flags & SCOPE_CLASS_STATIC_BLOCK) > 0;
@@ -1342,11 +1346,9 @@ pp$8.parseClassField = function(field) {
     this.raise(field.key.start, "Classes can't have a static field named 'prototype'");
   }
   if (this.eat(types$1.eq)) {
-    var scope = this.currentThisScope();
-    var inClassFieldInit = scope.inClassFieldInit;
-    scope.inClassFieldInit = true;
+    this.enterScope(SCOPE_CLASS_FIELD_INIT | SCOPE_SUPER);
     field.value = this.parseMaybeAssign();
-    scope.inClassFieldInit = inClassFieldInit;
+    this.exitScope();
   } else {
     field.value = null;
   }
@@ -1469,6 +1471,9 @@ pp$8.parseExport = function(node, exports) {
     }
     node.specifiers = [];
     node.source = null;
+    if (this.options.ecmaVersion >= 16) {
+      node.attributes = [];
+    }
   } else {
     node.declaration = null;
     node.specifiers = this.parseExportSpecifiers(exports);
@@ -1490,6 +1495,9 @@ pp$8.parseExport = function(node, exports) {
         }
       }
       node.source = null;
+      if (this.options.ecmaVersion >= 16) {
+        node.attributes = [];
+      }
     }
     this.semicolon();
   }
@@ -2079,11 +2087,11 @@ types$1.backQuote.updateContext = function() {
 };
 types$1.star.updateContext = function(prevType) {
   if (prevType === types$1._function) {
-    var index2 = this.context.length - 1;
-    if (this.context[index2] === types$2.f_expr) {
-      this.context[index2] = types$2.f_expr_gen;
+    var index = this.context.length - 1;
+    if (this.context[index] === types$2.f_expr) {
+      this.context[index] = types$2.f_expr_gen;
     } else {
-      this.context[index2] = types$2.f_gen;
+      this.context[index] = types$2.f_gen;
     }
   }
   this.exprAllowed = true;
@@ -2849,9 +2857,10 @@ pp$5.parseProperty = function(isPattern, refDestructuringErrors) {
   return this.finishNode(prop, "Property");
 };
 pp$5.parseGetterSetter = function(prop) {
-  prop.kind = prop.key.name;
+  var kind = prop.key.name;
   this.parsePropertyName(prop);
   prop.value = this.parseMethod(false);
+  prop.kind = kind;
   var paramCount = prop.kind === "get" ? 0 : 1;
   if (prop.value.params.length !== paramCount) {
     var start = prop.value.start;
@@ -2877,9 +2886,9 @@ pp$5.parsePropertyValue = function(prop, isPattern, isGenerator2, isAsync, start
     if (isPattern) {
       this.unexpected();
     }
-    prop.kind = "init";
     prop.method = true;
     prop.value = this.parseMethod(isGenerator2, isAsync);
+    prop.kind = "init";
   } else if (!isPattern && !containsEsc && this.options.ecmaVersion >= 5 && !prop.computed && prop.key.type === "Identifier" && (prop.key.name === "get" || prop.key.name === "set") && (this.type !== types$1.comma && this.type !== types$1.braceR && this.type !== types$1.eq)) {
     if (isGenerator2 || isAsync) {
       this.unexpected();
@@ -2893,7 +2902,6 @@ pp$5.parsePropertyValue = function(prop, isPattern, isGenerator2, isAsync, start
     if (prop.key.name === "await" && !this.awaitIdentPos) {
       this.awaitIdentPos = startPos;
     }
-    prop.kind = "init";
     if (isPattern) {
       prop.value = this.parseMaybeDefault(startPos, startLoc, this.copyNode(prop.key));
     } else if (this.type === types$1.eq && refDestructuringErrors) {
@@ -2904,6 +2912,7 @@ pp$5.parsePropertyValue = function(prop, isPattern, isGenerator2, isAsync, start
     } else {
       prop.value = this.copyNode(prop.key);
     }
+    prop.kind = "init";
     prop.shorthand = true;
   } else {
     this.unexpected();
@@ -3053,7 +3062,7 @@ pp$5.checkUnreserved = function(ref2) {
   if (this.inAsync && name2 === "await") {
     this.raiseRecoverable(start, "Cannot use 'await' as identifier inside an async function");
   }
-  if (this.currentThisScope().inClassFieldInit && name2 === "arguments") {
+  if (!(this.currentThisScope().flags & SCOPE_VAR) && name2 === "arguments") {
     this.raiseRecoverable(start, "Cannot use 'arguments' in class field initializer");
   }
   if (this.inClassStaticBlock && (name2 === "arguments" || name2 === "await")) {
@@ -3146,6 +3155,9 @@ var pp$4 = Parser$1.prototype;
 pp$4.raise = function(pos, message) {
   var loc = getLineInfo(this.input, pos);
   message += " (" + loc.line + ":" + loc.column + ")";
+  if (this.sourceFile) {
+    message += " in " + this.sourceFile;
+  }
   var err = new SyntaxError(message);
   err.pos = pos;
   err.loc = loc;
@@ -3164,7 +3176,6 @@ var Scope = function Scope2(flags) {
   this.var = [];
   this.lexical = [];
   this.functions = [];
-  this.inClassFieldInit = false;
 };
 pp$3.enterScope = function(flags) {
   this.scopeStack.push(new Scope(flags));
@@ -3226,7 +3237,7 @@ pp$3.currentScope = function() {
 pp$3.currentVarScope = function() {
   for (var i2 = this.scopeStack.length - 1; ; i2--) {
     var scope = this.scopeStack[i2];
-    if (scope.flags & SCOPE_VAR) {
+    if (scope.flags & (SCOPE_VAR | SCOPE_CLASS_FIELD_INIT | SCOPE_CLASS_STATIC_BLOCK)) {
       return scope;
     }
   }
@@ -3234,7 +3245,7 @@ pp$3.currentVarScope = function() {
 pp$3.currentThisScope = function() {
   for (var i2 = this.scopeStack.length - 1; ; i2--) {
     var scope = this.scopeStack[i2];
-    if (scope.flags & SCOPE_VAR && !(scope.flags & SCOPE_ARROW)) {
+    if (scope.flags & (SCOPE_VAR | SCOPE_CLASS_FIELD_INIT | SCOPE_CLASS_STATIC_BLOCK) && !(scope.flags & SCOPE_ARROW)) {
       return scope;
     }
   }
@@ -5458,7 +5469,7 @@ pp.readWord = function() {
   }
   return this.finishToken(type, word);
 };
-var version$2 = "8.14.0";
+var version$2 = "8.14.1";
 Parser$1.acorn = {
   Parser: Parser$1,
   version: version$2,
@@ -6699,6 +6710,17 @@ function isScope(node) {
 function isBlockScope(node) {
   return node.type === "BlockStatement" || node.type === "SwitchStatement" || node.type === "ForInStatement" || node.type === "ForOfStatement" || node.type === "ForStatement" || isScope(node);
 }
+function isCombinatorOf(node, cls, sels) {
+  const callee = node.callee;
+  if (callee.type === "MemberExpression" && callee.object.type === "Identifier") {
+    if (callee.object.name === cls) {
+      if (callee.property.type === "Identifier" && sels.includes(callee.property.name)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 function findReferences(node, {
   globals = defaultGlobals,
   filterDeclaration = () => true
@@ -6783,15 +6805,10 @@ function findReferences(node, {
       node2.specifiers.forEach((specifier) => declareLocal(root, specifier.local));
     },
     CallExpression(node2) {
-      const callee = node2.callee;
-      if (callee.type === "MemberExpression" && callee.object.type === "Identifier") {
-        if (callee.object.name === "Events") {
-          if (callee.property.type === "Identifier" && callee.property.name === "send") {
-            const arg = node2.arguments[0];
-            if (arg.type === "Identifier") {
-              sendTarget.push(arg);
-            }
-          }
+      if (isCombinatorOf(node2, "Events", ["send"])) {
+        const arg = node2.arguments[0];
+        if (arg.type === "Identifier") {
+          sendTarget.push(arg);
         }
       }
     }
@@ -6820,38 +6837,31 @@ function findReferences(node, {
   const extraType = {};
   simple(node, {
     CallExpression(node2) {
-      const callee = node2.callee;
-      if (callee.type === "MemberExpression" && callee.object.type === "Identifier") {
-        if (callee.object.name === "Events") {
-          if (callee.property.type === "Identifier" && (callee.property.name === "or" || callee.property.name === "_or_index")) {
-            for (const arg of node2.arguments) {
-              if (arg.type === "Identifier") {
-                forceVars.push(arg);
-              }
-            }
+      if (isCombinatorOf(node2, "Events", ["or", "_or_index", "some"])) {
+        for (const arg of node2.arguments) {
+          if (arg.type === "Identifier") {
+            forceVars.push(arg);
           }
-        } else if (callee.object.name === "Behaviors") {
-          if (callee.property.type === "Identifier" && callee.property.name === "collect") {
-            const arg = node2.arguments[1];
-            if (arg.type === "Identifier") {
-              forceVars.push(arg);
-            }
-          } else if (callee.property.type === "Identifier" && callee.property.name === "_select") {
-            if (node2.arguments[1].type === "Identifier") {
-              const name2 = node2.arguments[1].name;
-              if (/^_[0-9]/.exec(name2)) {
-                forceVars.push(node2.arguments[1]);
-              }
-              extraType["isSelect"] = true;
-            }
-          } else if (callee.property.type === "Identifier" && callee.property.name === "gather") {
-            extraType["gather"] = node2.arguments[0].value;
-          } else if (callee.property.type === "Identifier" && (callee.property.name === "or" || callee.property.name === "_or_index")) {
-            for (const arg of node2.arguments) {
-              if (arg.type === "Identifier") {
-                forceVars.push(arg);
-              }
-            }
+        }
+      } else if (isCombinatorOf(node2, "Behaviors", ["collect"])) {
+        const arg = node2.arguments[1];
+        if (arg.type === "Identifier") {
+          forceVars.push(arg);
+        }
+      } else if (isCombinatorOf(node2, "Behaviors", ["_select"])) {
+        if (node2.arguments[1].type === "Identifier") {
+          const name2 = node2.arguments[1].name;
+          if (/^_[0-9]/.exec(name2)) {
+            forceVars.push(node2.arguments[1]);
+          }
+          extraType["isSelect"] = true;
+        }
+      } else if (isCombinatorOf(node2, "Behaviors", ["gather"])) {
+        extraType["gather"] = node2.arguments[0].value;
+      } else if (isCombinatorOf(node2, "Behaviors", ["or", "_or_index", "some"])) {
+        for (const arg of node2.arguments) {
+          if (arg.type === "Identifier") {
+            forceVars.push(arg);
           }
         }
       }
@@ -6959,936 +6969,6 @@ function isTopObjectDeclaration(node, ancestors) {
 }
 function isTopArrayDeclaration(node, ancestors) {
   return node.type === "VariableDeclarator" && node.id.type === "ArrayPattern" && ancestors.length === 3;
-}
-const acornOptions = {
-  ecmaVersion: 13,
-  sourceType: "module"
-};
-function findDecls(input) {
-  try {
-    const body = parseProgram(input);
-    const list2 = body.body;
-    return list2.map((decl) => input.slice(decl.start, decl.end));
-  } catch (error) {
-    const e = error;
-    console.log(e.message, ": error around -> ", `"${input.slice(e.pos - 30, e.pos + 30)}"`);
-    return [];
-  }
-}
-function parseJavaScript(input, initialId, flattened2 = false) {
-  var _a2;
-  const decls = findDecls(input);
-  const allReferences = [];
-  let id = initialId;
-  for (const decl of decls) {
-    id++;
-    const b2 = parseProgram(decl);
-    const [references, forceVars, sendTargets, extraType] = findReferences(b2);
-    checkAssignments(b2, references, input);
-    const declarations = findDeclarations(b2, input);
-    const rewriteSpecs = flattened2 ? [] : checkNested(b2, id);
-    if (rewriteSpecs.length === 0) {
-      const myId = ((_a2 = declarations[0]) == null ? void 0 : _a2.name) || `${id}`;
-      allReferences.push({
-        id: myId,
-        body: b2,
-        declarations,
-        references,
-        forceVars,
-        sendTargets,
-        imports: [],
-        extraType,
-        // expression: false,
-        input: decl
-      });
-    } else {
-      let newInput = decl;
-      let newPart = "";
-      let overridden = false;
-      let again = false;
-      for (let i2 = 0; i2 < rewriteSpecs.length; i2++) {
-        const spec = rewriteSpecs[i2];
-        if (spec.type === "range") {
-          const sub = newInput.slice(spec.start, spec.end);
-          const varName = spec.name;
-          newPart += `const ${varName} = ${sub};
-`;
-          let length = spec.end - spec.start;
-          const newNewInput = `${newInput.slice(0, spec.start)}${spec.name.padEnd(length, " ")}${newInput.slice(spec.end)}`;
-          if (newNewInput.length !== decl.length) {
-            debugger;
-          }
-          newInput = newNewInput;
-        } else if (spec.type === "override") {
-          overridden = true;
-          newPart += spec.definition + "\n";
-        } else if (spec.type === "select") {
-          overridden = false;
-          const sub = spec.triggers.map((spec2) => newInput.slice(spec2.start, spec2.end));
-          const trigger = `Events._or_index(${sub.join(", ")})`;
-          const funcs = spec.funcs.map((spec2) => newInput.slice(spec2.start, spec2.end));
-          const init = newInput.slice(spec.init.start, spec.init.end);
-          const newNewInput = `const ${declarations[0].name} = ${spec.classType}._select(${init}, ${trigger}, [${funcs}]);`;
-          newInput = newNewInput;
-          again = true;
-          id++;
-          break;
-        }
-      }
-      const parsed = parseJavaScript(`${newPart}${overridden ? "" : "\n" + newInput}`, again ? id - 1 : initialId, !again);
-      allReferences.push(...parsed);
-    }
-  }
-  return allReferences;
-}
-function parseProgram(input) {
-  return Parser$1.parse(input, acornOptions);
-}
-function parseJSX(input) {
-  return Parser$1.extend(jsx()).parse(input, { ecmaVersion: 13 });
-}
-class Sourcemap {
-  constructor(input) {
-    __publicField(this, "input");
-    __publicField(this, "_edits");
-    this.input = input;
-    this._edits = [];
-  }
-  _bisectLeft(index2) {
-    let lo = 0;
-    let hi = this._edits.length;
-    while (lo < hi) {
-      const mid = lo + hi >>> 1;
-      if (this._edits[mid].start < index2) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo;
-  }
-  _bisectRight(index2) {
-    let lo = 0;
-    let hi = this._edits.length;
-    while (lo < hi) {
-      const mid = lo + hi >>> 1;
-      if (this._edits[mid].start > index2) hi = mid;
-      else lo = mid + 1;
-    }
-    return lo;
-  }
-  insertLeft(index2, value) {
-    return this.replaceLeft(index2, index2, value);
-  }
-  insertRight(index2, value) {
-    return this.replaceRight(index2, index2, value);
-  }
-  delete(start, end) {
-    return this.replaceRight(start, end, "");
-  }
-  replaceLeft(start, end, value) {
-    return this._edits.splice(this._bisectLeft(start), 0, { start, end, value }), this;
-  }
-  replaceRight(start, end, value) {
-    return this._edits.splice(this._bisectRight(start), 0, { start, end, value }), this;
-  }
-  translate(position) {
-    let index2 = 0;
-    let ci = { line: 1, column: 0 };
-    let co = { line: 1, column: 0 };
-    for (const { start, end, value } of this._edits) {
-      if (start > index2) {
-        const l22 = positionLength(this.input, index2, start);
-        const ci22 = positionAdd(ci, l22);
-        const co22 = positionAdd(co, l22);
-        if (positionCompare(co22, position) > 0) break;
-        ci = ci22;
-        co = co22;
-      }
-      const il = positionLength(this.input, start, end);
-      const ol = positionLength(value);
-      const ci2 = positionAdd(ci, il);
-      const co2 = positionAdd(co, ol);
-      if (positionCompare(co2, position) > 0) return ci;
-      ci = ci2;
-      co = co2;
-      index2 = end;
-    }
-    const l2 = positionSubtract(position, co);
-    return positionAdd(ci, l2);
-  }
-  trim() {
-    const input = this.input;
-    if (input.startsWith("\n")) this.delete(0, 1);
-    if (input.endsWith("\n")) this.delete(input.length - 1, input.length);
-    return this;
-  }
-  toString() {
-    let output = "";
-    let index2 = 0;
-    for (const { start, end, value } of this._edits) {
-      if (start > index2) output += this.input.slice(index2, start);
-      output += value;
-      index2 = end;
-    }
-    output += this.input.slice(index2);
-    return output;
-  }
-}
-function positionCompare(a2, b2) {
-  return a2.line - b2.line || a2.column - b2.column;
-}
-function positionLength(input, start = 0, end = input.length) {
-  let match;
-  let line = 0;
-  lineBreakG.lastIndex = start;
-  while ((match = lineBreakG.exec(input)) && match.index < end) {
-    ++line;
-    start = match.index + match[0].length;
-  }
-  return { line, column: end - start };
-}
-function positionSubtract(b2, a2) {
-  return b2.line === a2.line ? { line: 0, column: b2.column - a2.column } : { line: b2.line - a2.line, column: b2.column };
-}
-function positionAdd(p2, l2) {
-  return l2.line === 0 ? { line: p2.line, column: p2.column + l2.column } : { line: p2.line + l2.line, column: l2.column };
-}
-const renkonGlobals = /* @__PURE__ */ new Set([
-  "Events",
-  "Behaviors",
-  "Renkon"
-]);
-function transpileJavaScript(node) {
-  var _a2;
-  const outputs = Array.from(new Set((_a2 = node.declarations) == null ? void 0 : _a2.map((r) => r.name)));
-  const only = outputs.length === 0 ? "" : outputs[0];
-  const inputs = Array.from(new Set(node.references.map((r) => r.name))).filter((n2) => {
-    return !defaultGlobals.has(n2) && !renkonGlobals.has(n2) && !(node.sendTargets.findIndex((s) => s.name === n2) >= 0);
-  });
-  const forceVars = Array.from(new Set(node.forceVars.map((r) => r.name))).filter((n2) => !defaultGlobals.has(n2) && !renkonGlobals.has(n2));
-  const output = new Sourcemap(node.input).trim();
-  rewriteRenkonCalls(output, node.body);
-  output.insertLeft(0, `, body: (${inputs}) => {
-`);
-  output.insertLeft(0, `, outputs: ${JSON.stringify(only)}`);
-  output.insertLeft(0, `, inputs: ${JSON.stringify(inputs)}`);
-  output.insertLeft(0, `, forceVars: ${JSON.stringify(forceVars)}`);
-  output.insertLeft(0, `, blockId: "${node.blockId}"`);
-  output.insertLeft(0, `{id: "${node.id}"`);
-  output.insertRight(node.input.length, `
-return ${only};`);
-  output.insertRight(node.input.length, "\n}};\n");
-  return String(output);
-}
-function getFunctionBody(input, forMerge) {
-  const compiled = parseJavaScript(input, 0, true);
-  const node = compiled[0].body.body[0];
-  const params = node.params.map((p2) => p2.name);
-  const body = node.body.body;
-  const last = body[body.length - 1];
-  const returnArray = forMerge ? [] : getArray(last);
-  const output = new Sourcemap(input).trim();
-  output.delete(0, body[0].start);
-  output.delete(last.start, input.length);
-  return { params, returnArray, output: String(output) };
-}
-function getArray(returnNode) {
-  if (returnNode.type !== "ReturnStatement") {
-    console.error("cannot convert");
-    return null;
-  }
-  const array = returnNode.argument;
-  if (!array || array.type !== "ArrayExpression") {
-    console.error("cannot convert");
-    return null;
-  }
-  for (const elem of array.elements) {
-    if (!elem || elem.type !== "Identifier") {
-      console.error("cannot convert");
-      return null;
-    }
-  }
-  return array.elements.map((e) => e.name);
-}
-function quote(node, output) {
-  output.insertLeft(node.start, '"');
-  output.insertRight(node.end, '"');
-}
-function rewriteRenkonCalls(output, body) {
-  simple(body, {
-    CallExpression(node) {
-      const callee = node.callee;
-      if (callee.type === "MemberExpression" && callee.object.type === "Identifier") {
-        if (callee.object.name === "Events") {
-          output.insertRight(callee.object.end, ".create(Renkon)");
-          if (callee.property.type === "Identifier") {
-            if (callee.property.name === "delay") {
-              quote(node.arguments[0], output);
-            } else if (callee.property.name === "or" || callee.property.name === "_or_index") {
-              for (const arg of node.arguments) {
-                quote(arg, output);
-              }
-            } else if (callee.property.name === "send") {
-              quote(node.arguments[0], output);
-            } else if (callee.property.name === "collect" || callee.property.name === "_select") {
-              quote(node.arguments[1], output);
-            }
-          }
-        } else if (callee.object.name === "Behaviors") {
-          output.insertRight(callee.object.end, ".create(Renkon)");
-          if (callee.property.type === "Identifier") {
-            if (callee.property.name === "collect" || callee.property.name === "_select") {
-              quote(node.arguments[1], output);
-            } else if (callee.property.name === "or" || callee.property.name === "_or_index") {
-              for (const arg of node.arguments) {
-                quote(arg, output);
-              }
-            }
-          }
-        }
-      }
-    }
-  });
-}
-const version$1 = "0.4.0";
-const packageJson = {
-  version: version$1
-};
-const typeKey = Symbol("typeKey");
-const isBehaviorKey = Symbol("isBehavior");
-const eventType = "EventType";
-const delayType = "DelayType";
-const timerType = "TimerType";
-const collectType = "CollectType";
-const selectType = "SelectType";
-const promiseType = "PromiseType";
-const behaviorType = "BehaviorType";
-const onceType = "OnceType";
-const orType = "OrType";
-const sendType = "SendType";
-const receiverType = "ReceiverType";
-const changeType = "ChangeType";
-const gatherType = "GatherType";
-const generatorNextType = "GeneratorNextType";
-const resolvePartType = "ResolvePart";
-_b = typeKey, _a$1 = isBehaviorKey;
-class Stream {
-  constructor(type, isBehavior) {
-    __publicField(this, _b);
-    __publicField(this, _a$1);
-    this[typeKey] = type;
-    this[isBehaviorKey] = isBehavior;
-  }
-  created(_state, _id) {
-    return this;
-  }
-  ready(node, state) {
-    var _a2;
-    for (const inputName of node.inputs) {
-      const varName = state.baseVarName(inputName);
-      const resolved = (_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value;
-      if (resolved === void 0 && !node.forceVars.includes(inputName)) {
-        return false;
-      }
-    }
-    return true;
-  }
-  evaluate(_state, _node, _inputArray, _lastInputArray) {
-    return;
-  }
-  conclude(state, varName) {
-    const inputArray = state.inputArray.get(varName);
-    const inputs = state.nodes.get(varName).inputs;
-    if (!inputArray || !inputs) {
-      return;
-    }
-    for (let i2 = 0; i2 < inputs.length; i2++) {
-      const resolved = state.resolved.get(inputs[i2]);
-      if (resolved === void 0) {
-        inputArray[i2] = void 0;
-      }
-    }
-    return;
-  }
-}
-class DelayedEvent extends Stream {
-  constructor(delay, varName, isBehavior) {
-    super(delayType, isBehavior);
-    __publicField(this, "delay");
-    __publicField(this, "varName");
-    this.delay = delay;
-    this.varName = varName;
-  }
-  ready(node, state) {
-    const output = node.outputs;
-    const scratch = state.scratch.get(output);
-    if ((scratch == null ? void 0 : scratch.queue.length) > 0) {
-      return true;
-    }
-    return state.defaultReady(node);
-  }
-  created(state, id) {
-    if (!state.scratch.get(id)) {
-      state.scratch.set(id, { queue: [] });
-    }
-    return this;
-  }
-  evaluate(state, node, inputArray, lastInputArray) {
-    const value = state.spliceDelayedQueued(state.scratch.get(node.id), state.time);
-    if (value !== void 0) {
-      state.setResolved(node.id, { value, time: state.time });
-    }
-    const inputIndex = 0;
-    const myInput = inputArray[inputIndex];
-    const doIt = this[isBehaviorKey] && myInput !== void 0 && myInput !== (lastInputArray == null ? void 0 : lastInputArray[inputIndex]) || !this[isBehaviorKey] && myInput !== void 0;
-    if (doIt) {
-      const scratch = state.scratch.get(node.id);
-      scratch.queue.push({ time: state.time + this.delay, value: myInput });
-    }
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (this[isBehaviorKey]) {
-      return;
-    }
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class TimerEvent extends Stream {
-  constructor(interval, isBehavior) {
-    super(timerType, isBehavior);
-    __publicField(this, "interval");
-    this.interval = interval;
-  }
-  created(_state, _id) {
-    return this;
-  }
-  ready(node, state) {
-    const output = node.outputs;
-    const last = state.scratch.get(output);
-    const interval = this.interval;
-    return last === void 0 || last + interval <= state.time;
-  }
-  evaluate(state, node, _inputArray, _lastInputArray) {
-    const interval = this.interval;
-    const logicalTrigger = interval * Math.floor(state.time / interval);
-    state.setResolved(node.id, { value: logicalTrigger, time: state.time });
-    state.scratch.set(node.id, logicalTrigger);
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (this[isBehaviorKey]) {
-      return;
-    }
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class PromiseEvent extends Stream {
-  constructor(promise) {
-    super(promiseType, true);
-    __publicField(this, "promise");
-    this.promise = promise;
-  }
-  created(state, id) {
-    var _a2;
-    const oldPromise = (_a2 = state.scratch.get(id)) == null ? void 0 : _a2.promise;
-    const promise = this.promise;
-    if (oldPromise && promise !== oldPromise) {
-      state.resolved.delete(id);
-    }
-    promise.then((value) => {
-      var _a3;
-      const wasResolved = (_a3 = state.resolved.get(id)) == null ? void 0 : _a3.value;
-      if (!wasResolved) {
-        state.scratch.set(id, { promise });
-        state.setResolved(id, { value, time: state.time });
-      }
-    });
-    return this;
-  }
-}
-class OrStream extends Stream {
-  constructor(varNames, useIndex, isBehavior = false) {
-    super(orType, isBehavior);
-    __publicField(this, "varNames");
-    __publicField(this, "useIndex");
-    this.varNames = varNames;
-    this.useIndex = useIndex;
-  }
-  evaluate(state, node, inputArray, _lastInputArray) {
-    for (let i2 = 0; i2 < node.inputs.length; i2++) {
-      const myInput = inputArray[i2];
-      if (myInput !== void 0) {
-        if (this.useIndex) {
-          state.setResolved(node.id, { value: { index: i2, value: myInput }, time: state.time });
-        } else {
-          state.setResolved(node.id, { value: myInput, time: state.time });
-        }
-        return;
-      }
-    }
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (this[isBehaviorKey]) {
-      return;
-    }
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class UserEvent extends Stream {
-  constructor(record, queued) {
-    super(eventType, false);
-    __publicField(this, "record");
-    __publicField(this, "queued");
-    this.record = record;
-    this.queued = !!queued;
-  }
-  created(state, id) {
-    let oldRecord = state.scratch.get(id);
-    if (oldRecord && oldRecord.cleanup && typeof oldRecord.cleanup === "function") {
-      oldRecord.cleanup();
-      oldRecord.cleanup = void 0;
-    }
-    state.scratch.set(id, this.record);
-    return this;
-  }
-  evaluate(state, node, _inputArray, _lastInputArray) {
-    let newValue;
-    if (this.queued) {
-      newValue = state.getEventValues(state.scratch.get(node.id), state.time);
-    } else {
-      newValue = state.getEventValue(state.scratch.get(node.id), state.time);
-    }
-    if (newValue !== void 0) {
-      if (newValue !== null && newValue.then) {
-        newValue.then((value) => {
-          state.setResolved(node.id, { value, time: state.time });
-        });
-      } else {
-        state.setResolved(node.id, { value: newValue, time: state.time });
-      }
-    }
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class SendEvent extends Stream {
-  constructor() {
-    super(sendType, false);
-  }
-}
-class ReceiverEvent extends Stream {
-  constructor(value) {
-    super(receiverType, false);
-    __publicField(this, "value");
-    this.value = value;
-  }
-  created(state, id) {
-    if (this.value !== void 0) {
-      state.scratch.set(id, this.value);
-    }
-    return this;
-  }
-  evaluate(state, node, _inputArray, _lastInputArray) {
-    const value = state.scratch.get(node.id);
-    if (value !== void 0) {
-      state.setResolved(node.id, { value, time: state.time });
-    }
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      state.scratch.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class ChangeEvent extends Stream {
-  constructor(value) {
-    super(changeType, false);
-    __publicField(this, "value");
-    this.value = value;
-  }
-  created(state, id) {
-    state.scratch.set(id, this.value);
-    return this;
-  }
-  ready(node, state) {
-    var _a2;
-    const resolved = (_a2 = state.resolved.get(state.baseVarName(node.inputs[0]))) == null ? void 0 : _a2.value;
-    if (resolved !== void 0 && resolved === state.scratch.get(node.id)) {
-      return false;
-    }
-    return state.defaultReady(node);
-  }
-  evaluate(state, node, inputArray, _lastInputArray) {
-    state.setResolved(node.id, { value: this.value, time: state.time });
-    state.scratch.set(node.id, inputArray[0]);
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class OnceEvent extends Stream {
-  constructor(value) {
-    super(onceType, false);
-    __publicField(this, "value");
-    this.value = value;
-  }
-  created(state, id) {
-    state.scratch.set(id, this.value);
-    return this;
-  }
-  ready(node, state) {
-    return state.scratch.get(node.id) !== void 0;
-  }
-  evaluate(state, node, _inputArray, _lastInputArray) {
-    state.setResolved(node.id, { value: this.value, time: state.time });
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    state.scratch.delete(varName);
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class Behavior extends Stream {
-  constructor() {
-    super(behaviorType, true);
-  }
-}
-class CollectStream extends Stream {
-  constructor(init, varName, updater, isBehavior) {
-    super(collectType, isBehavior);
-    __publicField(this, "init");
-    __publicField(this, "varName");
-    __publicField(this, "updater");
-    this.init = init;
-    this.varName = varName;
-    this.updater = updater;
-  }
-  created(state, id) {
-    if (this.init && typeof this.init === "object" && this.init.then) {
-      this.init.then((value) => {
-        state.streams.set(id, this);
-        this.init = value;
-        state.setResolved(id, { value, time: state.time });
-        state.scratch.set(id, { current: this.init });
-      });
-      return this;
-    }
-    if (!state.scratch.get(id)) {
-      state.streams.set(id, this);
-      state.setResolved(id, { value: this.init, time: state.time });
-      state.scratch.set(id, { current: this.init });
-    }
-    return this;
-  }
-  evaluate(state, node, inputArray, lastInputArray) {
-    const scratch = state.scratch.get(node.id);
-    if (!scratch) {
-      return;
-    }
-    const inputIndex = node.inputs.indexOf(this.varName);
-    const inputValue = inputArray[inputIndex];
-    if (inputValue !== void 0 && (!lastInputArray || inputValue !== lastInputArray[inputIndex])) {
-      const newValue = this.updater(scratch.current, inputValue);
-      if (newValue !== void 0) {
-        if (newValue !== null && newValue.then) {
-          newValue.then((value) => {
-            state.setResolved(node.id, { value, time: state.time });
-            state.scratch.set(node.id, { current: value });
-          });
-        } else {
-          state.setResolved(node.id, { value: newValue, time: state.time });
-          state.scratch.set(node.id, { current: newValue });
-        }
-      }
-    }
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (this[isBehaviorKey]) {
-      return;
-    }
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class SelectStream extends Stream {
-  constructor(init, varName, updaters, isBehavior) {
-    super(selectType, isBehavior);
-    __publicField(this, "init");
-    __publicField(this, "varName");
-    __publicField(this, "updaters");
-    this.init = init;
-    this.varName = varName;
-    this.updaters = updaters;
-  }
-  created(state, id) {
-    if (this.init && typeof this.init === "object" && this.init.then) {
-      this.init.then((value) => {
-        state.streams.set(id, this);
-        this.init = value;
-        state.setResolved(id, { value, time: state.time });
-        state.scratch.set(id, { current: this.init });
-      });
-      return this;
-    }
-    if (!state.scratch.get(id)) {
-      state.streams.set(id, this);
-      state.setResolved(id, { value: this.init, time: state.time });
-      state.scratch.set(id, { current: this.init });
-    }
-    return this;
-  }
-  evaluate(state, node, inputArray, _lastInputArray) {
-    const scratch = state.scratch.get(node.id);
-    if (scratch === void 0) {
-      return;
-    }
-    const inputIndex = node.inputs.indexOf(this.varName);
-    const orRecord = inputArray[inputIndex];
-    if (orRecord !== void 0) {
-      const newValue = this.updaters[orRecord.index](scratch.current, orRecord.value);
-      if (newValue !== void 0) {
-        if (newValue !== null && newValue.then) {
-          newValue.then((value) => {
-            state.setResolved(node.id, { value, time: state.time });
-            state.scratch.set(node.id, { current: value });
-          });
-        } else {
-          state.setResolved(node.id, { value: newValue, time: state.time });
-          state.scratch.set(node.id, { current: newValue });
-        }
-      }
-    }
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (this[isBehaviorKey]) {
-      return;
-    }
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class GatherStream extends Stream {
-  constructor(regexp, isBehavior) {
-    super(gatherType, isBehavior);
-    __publicField(this, "regexp");
-    this.regexp = new RegExp(regexp);
-  }
-  created(_state, _id) {
-    return this;
-  }
-  evaluate(state, node, inputArray, lastInputArray) {
-    if (state.equals(inputArray, lastInputArray)) {
-      return;
-    }
-    const inputs = node.inputs;
-    const validInputNames = [];
-    const validInputs = [];
-    let hasPromise = false;
-    for (let i2 = 0; i2 < inputs.length; i2++) {
-      const v2 = inputArray[i2];
-      if (v2 !== void 0) {
-        validInputNames.push(inputs[i2]);
-        validInputs.push(v2);
-        if (v2 !== null && v2.then) {
-          hasPromise = true;
-        }
-      }
-    }
-    if (hasPromise) {
-      Promise.all(validInputs).then((values) => {
-        const result = {};
-        for (let i2 = 0; i2 < validInputNames.length; i2++) {
-          result[validInputNames[i2]] = values[i2];
-        }
-        state.setResolved(node.id, { value: result, time: state.time });
-      });
-    } else {
-      const result = {};
-      for (let i2 = 0; i2 < validInputNames.length; i2++) {
-        result[validInputNames[i2]] = validInputs[i2];
-      }
-      state.setResolved(node.id, { value: result, time: state.time });
-    }
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (this[isBehaviorKey]) {
-      return;
-    }
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class ResolvePart extends Stream {
-  constructor(object, isBehavior) {
-    super(resolvePartType, isBehavior);
-    __publicField(this, "promise");
-    __publicField(this, "indices");
-    __publicField(this, "resolved");
-    __publicField(this, "object");
-    this.object = object;
-    if (Array.isArray(this.object)) {
-      const array = this.object;
-      const indices = [...Array(array.length).keys()].filter((i2) => {
-        const elem = this.object[i2];
-        return typeof elem === "object" && elem !== null && elem.then;
-      });
-      const promises = indices.map((i2) => array[i2]);
-      this.promise = Promise.all(promises);
-      this.indices = indices;
-    } else {
-      const keys2 = Object.keys(this.object).filter((k2) => {
-        const elem = this.object[k2];
-        return typeof elem === "object" && elem !== null && elem.then;
-      });
-      const promises = keys2.map((k2) => this.object[k2]);
-      this.promise = Promise.all(promises);
-      this.indices = keys2;
-    }
-    this.resolved = false;
-  }
-  created(state, id) {
-    if (!this.resolved) {
-      this.promise.then((values) => {
-        var _a2;
-        const wasResolved = (_a2 = state.resolved.get(id)) == null ? void 0 : _a2.value;
-        if (!wasResolved) {
-          this.resolved = true;
-          if (Array.isArray(this.object)) {
-            const result = [...this.object];
-            const indices = this.indices;
-            for (let i2 of indices) {
-              result[indices[i2]] = values[i2];
-            }
-            state.setResolved(id, { value: result, time: state.time });
-            return result;
-          } else {
-            const result = { ...this.object };
-            const indices = this.indices;
-            for (let i2 = 0; i2 < indices.length; i2++) {
-              result[indices[i2]] = values[i2];
-            }
-            state.setResolved(id, { value: result, time: state.time });
-            return result;
-          }
-        }
-      });
-    }
-    return this;
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    if (this[isBehaviorKey]) {
-      return;
-    }
-    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
-}
-class GeneratorNextEvent extends Stream {
-  constructor(generator) {
-    super(generatorNextType, false);
-    __publicField(this, "promise");
-    __publicField(this, "generator");
-    const promise = generator.next();
-    this.promise = promise;
-    this.generator = generator;
-  }
-  created(state, id) {
-    if (this.generator.done) {
-      return this;
-    }
-    const promise = this.promise;
-    promise.then((value) => {
-      var _a2;
-      const wasResolved = (_a2 = state.resolved.get(id)) == null ? void 0 : _a2.value;
-      if (!wasResolved) {
-        state.setResolved(id, { value, time: state.time });
-      }
-    });
-    return this;
-  }
-  conclude(state, varName) {
-    var _a2;
-    super.conclude(state, varName);
-    const value = (_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value;
-    if (value !== void 0) {
-      if (!value.done) {
-        if (!this.generator.done) {
-          const promise = this.generator.next();
-          promise.then((value2) => {
-            var _a3;
-            const wasResolved = (_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value;
-            if (!wasResolved) {
-              state.setResolved(varName, { value: value2, time: state.time });
-            }
-          });
-          this.promise = promise;
-        }
-      } else {
-        this.generator.done = true;
-      }
-      state.resolved.delete(varName);
-      return varName;
-    }
-    return;
-  }
 }
 function a(t2, e) {
   for (var s = 0; s < e.length; s++) {
@@ -8025,8 +7105,8 @@ var b = { AbstractMethodHasImplementation: function(t2) {
 }, StaticBlockCannotHaveModifier: "Static class blocks cannot have any modifier.", TypeAnnotationAfterAssign: "Type annotations must come before default assignments, e.g. instead of `age = 25: number` use `age: number = 25`.", TypeImportCannotSpecifyDefaultAndNamed: "A type-only import can specify a default import or named bindings, but not both.", TypeModifierIsUsedInTypeExports: "The 'type' modifier cannot be used on a named export when 'export type' is used on its export statement.", TypeModifierIsUsedInTypeImports: "The 'type' modifier cannot be used on a named import when 'import type' is used on its import statement.", UnexpectedParameterModifier: "A parameter property is only allowed in a constructor implementation.", UnexpectedReadonly: "'readonly' type modifier is only permitted on array and tuple literal types.", GenericsEndWithComma: "Trailing comma is not allowed at the end of generics.", UnexpectedTypeAnnotation: "Did not expect a type annotation here.", UnexpectedTypeCastInParameter: "Unexpected type cast in parameter position.", UnsupportedImportTypeArgument: "Argument in a type import must be a string literal.", UnsupportedParameterPropertyKind: "A parameter property may not be declared using a binding pattern.", UnsupportedSignatureParameterKind: function(t2) {
   return "Name in a signature must be an Identifier, ObjectPattern or ArrayPattern, instead got " + t2.type + ".";
 }, LetInLexicalBinding: "'let' is not allowed to be used as a name in 'let' or 'const' declarations." }, g = { quot: '"', amp: "&", apos: "'", lt: "<", gt: ">", nbsp: " ", iexcl: "¡", cent: "¢", pound: "£", curren: "¤", yen: "¥", brvbar: "¦", sect: "§", uml: "¨", copy: "©", ordf: "ª", laquo: "«", not: "¬", shy: "­", reg: "®", macr: "¯", deg: "°", plusmn: "±", sup2: "²", sup3: "³", acute: "´", micro: "µ", para: "¶", middot: "·", cedil: "¸", sup1: "¹", ordm: "º", raquo: "»", frac14: "¼", frac12: "½", frac34: "¾", iquest: "¿", Agrave: "À", Aacute: "Á", Acirc: "Â", Atilde: "Ã", Auml: "Ä", Aring: "Å", AElig: "Æ", Ccedil: "Ç", Egrave: "È", Eacute: "É", Ecirc: "Ê", Euml: "Ë", Igrave: "Ì", Iacute: "Í", Icirc: "Î", Iuml: "Ï", ETH: "Ð", Ntilde: "Ñ", Ograve: "Ò", Oacute: "Ó", Ocirc: "Ô", Otilde: "Õ", Ouml: "Ö", times: "×", Oslash: "Ø", Ugrave: "Ù", Uacute: "Ú", Ucirc: "Û", Uuml: "Ü", Yacute: "Ý", THORN: "Þ", szlig: "ß", agrave: "à", aacute: "á", acirc: "â", atilde: "ã", auml: "ä", aring: "å", aelig: "æ", ccedil: "ç", egrave: "è", eacute: "é", ecirc: "ê", euml: "ë", igrave: "ì", iacute: "í", icirc: "î", iuml: "ï", eth: "ð", ntilde: "ñ", ograve: "ò", oacute: "ó", ocirc: "ô", otilde: "õ", ouml: "ö", divide: "÷", oslash: "ø", ugrave: "ù", uacute: "ú", ucirc: "û", uuml: "ü", yacute: "ý", thorn: "þ", yuml: "ÿ", OElig: "Œ", oelig: "œ", Scaron: "Š", scaron: "š", Yuml: "Ÿ", fnof: "ƒ", circ: "ˆ", tilde: "˜", Alpha: "Α", Beta: "Β", Gamma: "Γ", Delta: "Δ", Epsilon: "Ε", Zeta: "Ζ", Eta: "Η", Theta: "Θ", Iota: "Ι", Kappa: "Κ", Lambda: "Λ", Mu: "Μ", Nu: "Ν", Xi: "Ξ", Omicron: "Ο", Pi: "Π", Rho: "Ρ", Sigma: "Σ", Tau: "Τ", Upsilon: "Υ", Phi: "Φ", Chi: "Χ", Psi: "Ψ", Omega: "Ω", alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", zeta: "ζ", eta: "η", theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ", sigmaf: "ς", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", chi: "χ", psi: "ψ", omega: "ω", thetasym: "ϑ", upsih: "ϒ", piv: "ϖ", ensp: " ", emsp: " ", thinsp: " ", zwnj: "‌", zwj: "‍", lrm: "‎", rlm: "‏", ndash: "–", mdash: "—", lsquo: "‘", rsquo: "’", sbquo: "‚", ldquo: "“", rdquo: "”", bdquo: "„", dagger: "†", Dagger: "‡", bull: "•", hellip: "…", permil: "‰", prime: "′", Prime: "″", lsaquo: "‹", rsaquo: "›", oline: "‾", frasl: "⁄", euro: "€", image: "ℑ", weierp: "℘", real: "ℜ", trade: "™", alefsym: "ℵ", larr: "←", uarr: "↑", rarr: "→", darr: "↓", harr: "↔", crarr: "↵", lArr: "⇐", uArr: "⇑", rArr: "⇒", dArr: "⇓", hArr: "⇔", forall: "∀", part: "∂", exist: "∃", empty: "∅", nabla: "∇", isin: "∈", notin: "∉", ni: "∋", prod: "∏", sum: "∑", minus: "−", lowast: "∗", radic: "√", prop: "∝", infin: "∞", ang: "∠", and: "∧", or: "∨", cap: "∩", cup: "∪", int: "∫", there4: "∴", sim: "∼", cong: "≅", asymp: "≈", ne: "≠", equiv: "≡", le: "≤", ge: "≥", sub: "⊂", sup: "⊃", nsub: "⊄", sube: "⊆", supe: "⊇", oplus: "⊕", otimes: "⊗", perp: "⊥", sdot: "⋅", lceil: "⌈", rceil: "⌉", lfloor: "⌊", rfloor: "⌋", lang: "〈", rang: "〉", loz: "◊", spades: "♠", clubs: "♣", hearts: "♥", diams: "♦" }, A = /^[\da-fA-F]+$/, S = /^\d+$/;
-function C$1(t2) {
-  return t2 ? "JSXIdentifier" === t2.type ? t2.name : "JSXNamespacedName" === t2.type ? t2.namespace.name + ":" + t2.name.name : "JSXMemberExpression" === t2.type ? C$1(t2.object) + "." + C$1(t2.property) : void 0 : t2;
+function C$2(t2) {
+  return t2 ? "JSXIdentifier" === t2.type ? t2.name : "JSXNamespacedName" === t2.type ? t2.namespace.name + ":" + t2.name.name : "JSXMemberExpression" === t2.type ? C$2(t2.object) + "." + C$2(t2.property) : void 0 : t2;
 }
 var E = /(?:\s|\/\/.*|\/\*[^]*?\*\/)*/g;
 function k(t2) {
@@ -8223,7 +7303,7 @@ function D(e) {
               default:
                 this.unexpected();
             }
-            C$1(o2.name) !== C$1(n5.name) && this.raise(o2.start, "Expected corresponding JSX closing tag for <" + C$1(n5.name) + ">");
+            C$2(o2.name) !== C$2(n5.name) && this.raise(o2.start, "Expected corresponding JSX closing tag for <" + C$2(n5.name) + ">");
           }
           var h4 = n5.name ? "Element" : "Fragment";
           return s5["opening" + h4] = n5, s5["closing" + h4] = o2, s5.children = i5, this.type === r2.relational && "<" === this.value && this.raise(this.start, "Adjacent JSX elements must be wrapped in an enclosing tag"), this.finishNode(s5, "JSX" + h4);
@@ -9807,6 +8887,110 @@ function D(e) {
     return z;
   };
 }
+class Sourcemap {
+  constructor(input) {
+    __publicField(this, "input");
+    __publicField(this, "_edits");
+    this.input = input;
+    this._edits = [];
+  }
+  _bisectLeft(index) {
+    let lo = 0;
+    let hi = this._edits.length;
+    while (lo < hi) {
+      const mid = lo + hi >>> 1;
+      if (this._edits[mid].start < index) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+  _bisectRight(index) {
+    let lo = 0;
+    let hi = this._edits.length;
+    while (lo < hi) {
+      const mid = lo + hi >>> 1;
+      if (this._edits[mid].start > index) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo;
+  }
+  insertLeft(index, value) {
+    return this.replaceLeft(index, index, value);
+  }
+  insertRight(index, value) {
+    return this.replaceRight(index, index, value);
+  }
+  delete(start, end) {
+    return this.replaceRight(start, end, "");
+  }
+  replaceLeft(start, end, value) {
+    return this._edits.splice(this._bisectLeft(start), 0, { start, end, value }), this;
+  }
+  replaceRight(start, end, value) {
+    return this._edits.splice(this._bisectRight(start), 0, { start, end, value }), this;
+  }
+  translate(position) {
+    let index = 0;
+    let ci = { line: 1, column: 0 };
+    let co = { line: 1, column: 0 };
+    for (const { start, end, value } of this._edits) {
+      if (start > index) {
+        const l22 = positionLength(this.input, index, start);
+        const ci22 = positionAdd(ci, l22);
+        const co22 = positionAdd(co, l22);
+        if (positionCompare(co22, position) > 0) break;
+        ci = ci22;
+        co = co22;
+      }
+      const il = positionLength(this.input, start, end);
+      const ol = positionLength(value);
+      const ci2 = positionAdd(ci, il);
+      const co2 = positionAdd(co, ol);
+      if (positionCompare(co2, position) > 0) return ci;
+      ci = ci2;
+      co = co2;
+      index = end;
+    }
+    const l2 = positionSubtract(position, co);
+    return positionAdd(ci, l2);
+  }
+  trim() {
+    const input = this.input;
+    if (input.startsWith("\n")) this.delete(0, 1);
+    if (input.endsWith("\n")) this.delete(input.length - 1, input.length);
+    return this;
+  }
+  toString() {
+    let output = "";
+    let index = 0;
+    for (const { start, end, value } of this._edits) {
+      if (start > index) output += this.input.slice(index, start);
+      output += value;
+      index = end;
+    }
+    output += this.input.slice(index);
+    return output;
+  }
+}
+function positionCompare(a2, b2) {
+  return a2.line - b2.line || a2.column - b2.column;
+}
+function positionLength(input, start = 0, end = input.length) {
+  let match;
+  let line = 0;
+  lineBreakG.lastIndex = start;
+  while ((match = lineBreakG.exec(input)) && match.index < end) {
+    ++line;
+    start = match.index + match[0].length;
+  }
+  return { line, column: end - start };
+}
+function positionSubtract(b2, a2) {
+  return b2.line === a2.line ? { line: 0, column: b2.column - a2.column } : { line: b2.line - a2.line, column: b2.column };
+}
+function positionAdd(p2, l2) {
+  return l2.line === 0 ? { line: p2.line, column: p2.column + l2.column } : { line: p2.line + l2.line, column: l2.column };
+}
 function detype(input) {
   const ts = D();
   const node = Parser$1.extend(ts).parse(input, {
@@ -9835,6 +9019,875 @@ function removeTypeNode(output, node) {
     }
   }
 }
+const acornOptions = {
+  ecmaVersion: 13,
+  sourceType: "module"
+};
+function findDecls(input) {
+  const body = parseProgram(input);
+  const list2 = body.body;
+  return list2.map((decl) => input.slice(decl.start, decl.end));
+}
+function isCompilerArtifact(b2) {
+  if (b2.type !== "Program") {
+    return false;
+  }
+  if (b2.body[0].type !== "ExpressionStatement") {
+    return false;
+  }
+  if (b2.body[0].expression.type !== "Identifier") {
+    return false;
+  }
+  return /^_[0-9]/.test(b2.body[0].expression.name);
+}
+function parseJavaScript(input, initialId, flattened2 = false) {
+  var _a2;
+  let decls;
+  try {
+    input = detype(input);
+    decls = findDecls(input);
+  } catch (error) {
+    const e = error;
+    const message = e.message + `: error around -> 
+"${input.slice(e.pos - 30, e.pos + 30)}`;
+    console.log(message);
+    throw error;
+  }
+  const allReferences = [];
+  let id = initialId;
+  for (const decl of decls) {
+    id++;
+    const b2 = parseProgram(decl);
+    const [references, forceVars, sendTargets, extraType] = findReferences(b2);
+    checkAssignments(b2, references, input);
+    const declarations = findDeclarations(b2, input);
+    const rewriteSpecs = flattened2 ? [] : checkNested(b2, id);
+    if (isCompilerArtifact(b2)) {
+      continue;
+    }
+    if (rewriteSpecs.length === 0) {
+      const myId = ((_a2 = declarations[0]) == null ? void 0 : _a2.name) || `${id}`;
+      allReferences.push({
+        id: myId,
+        body: b2,
+        declarations,
+        references,
+        forceVars,
+        sendTargets,
+        imports: [],
+        extraType,
+        // expression: false,
+        input: decl
+      });
+    } else {
+      let newInput = decl;
+      let newPart = "";
+      let overridden = false;
+      let again = false;
+      for (let i2 = 0; i2 < rewriteSpecs.length; i2++) {
+        const spec = rewriteSpecs[i2];
+        if (spec.type === "range") {
+          const sub = newInput.slice(spec.start, spec.end);
+          const varName = spec.name;
+          newPart += `const ${varName} = ${sub};
+`;
+          let length = spec.end - spec.start;
+          const newNewInput = `${newInput.slice(0, spec.start)}${spec.name.padEnd(length, " ")}${newInput.slice(spec.end)}`;
+          if (newNewInput.length !== decl.length) {
+            debugger;
+          }
+          newInput = newNewInput;
+        } else if (spec.type === "override") {
+          overridden = true;
+          newPart += spec.definition + "\n";
+        } else if (spec.type === "select") {
+          overridden = false;
+          const sub = spec.triggers.map((spec2) => newInput.slice(spec2.start, spec2.end));
+          const trigger = `Events._or_index(${sub.join(", ")})`;
+          const funcs = spec.funcs.map((spec2) => newInput.slice(spec2.start, spec2.end));
+          const init = newInput.slice(spec.init.start, spec.init.end);
+          const newNewInput = `const ${declarations[0].name} = ${spec.classType}._select(${init}, ${trigger}, [${funcs}]);`;
+          newInput = newNewInput;
+          again = true;
+          id++;
+          break;
+        }
+      }
+      const parsed = parseJavaScript(`${newPart}${overridden ? "" : "\n" + newInput}`, again ? id - 1 : initialId, !again);
+      allReferences.push(...parsed);
+    }
+  }
+  return allReferences;
+}
+function parseProgram(input) {
+  return Parser$1.parse(input, acornOptions);
+}
+function parseJSX(input) {
+  return Parser$1.extend(jsx()).parse(input, { ecmaVersion: 13 });
+}
+const renkonGlobals = /* @__PURE__ */ new Set([
+  "Events",
+  "Behaviors",
+  "Renkon"
+]);
+function transpileJavaScript(node) {
+  var _a2;
+  const outputs = Array.from(new Set((_a2 = node.declarations) == null ? void 0 : _a2.map((r) => r.name)));
+  const only = outputs.length === 0 ? "" : outputs[0];
+  const inputs = Array.from(new Set(node.references.map((r) => r.name))).filter((n2) => {
+    return !defaultGlobals.has(n2) && !renkonGlobals.has(n2) && !(node.sendTargets.findIndex((s) => s.name === n2) >= 0);
+  });
+  const forceVars = Array.from(new Set(node.forceVars.map((r) => r.name))).filter((n2) => !defaultGlobals.has(n2) && !renkonGlobals.has(n2));
+  const output = new Sourcemap(node.input).trim();
+  rewriteRenkonCalls(output, node.body);
+  output.insertLeft(0, `, body: (${inputs}) => {
+`);
+  output.insertLeft(0, `, outputs: ${JSON.stringify(only)}`);
+  output.insertLeft(0, `, inputs: ${JSON.stringify(inputs)}`);
+  output.insertLeft(0, `, forceVars: ${JSON.stringify(forceVars)}`);
+  output.insertLeft(0, `, blockId: "${node.blockId}"`);
+  output.insertLeft(0, `{id: "${node.id}"`);
+  output.insertRight(node.input.length, `
+return ${only};`);
+  output.insertRight(node.input.length, "\n}};\n");
+  return String(output);
+}
+function getFunctionBody(input, forMerge) {
+  const compiled = parseJavaScript(input, 0, true);
+  const node = compiled[0].body.body[0];
+  const params = node.params.map((p2) => p2.name);
+  const body = node.body.body;
+  const last = body[body.length - 1];
+  const returnArray = forMerge ? [] : getArray(last);
+  const output = new Sourcemap(input).trim();
+  output.delete(0, body[0].start);
+  output.delete(last.start, input.length);
+  return { params, returnArray, output: String(output) };
+}
+function getArray(returnNode) {
+  if (returnNode.type !== "ReturnStatement") {
+    console.error("cannot convert");
+    return null;
+  }
+  const array = returnNode.argument;
+  if (!array || array.type !== "ArrayExpression") {
+    console.error("cannot convert");
+    return null;
+  }
+  for (const elem of array.elements) {
+    if (!elem || elem.type !== "Identifier") {
+      console.error("cannot convert");
+      return null;
+    }
+  }
+  return array.elements.map((e) => e.name);
+}
+function quote(node, output) {
+  output.insertLeft(node.start, '"');
+  output.insertRight(node.end, '"');
+}
+function rewriteRenkonCalls(output, body) {
+  simple(body, {
+    CallExpression(node) {
+      const callee = node.callee;
+      if (callee.type === "MemberExpression" && callee.object.type === "Identifier") {
+        if (callee.object.name === "Events") {
+          output.insertRight(callee.object.end, ".create(Renkon)");
+          if (callee.property.type === "Identifier") {
+            const selector = callee.property.name;
+            if (selector === "delay") {
+              quote(node.arguments[0], output);
+            } else if (["or", "_or_index", "some"].includes(selector)) {
+              for (const arg of node.arguments) {
+                quote(arg, output);
+              }
+            } else if (selector === "send") {
+              quote(node.arguments[0], output);
+            } else if (["collect", "_select"].includes(selector)) {
+              quote(node.arguments[1], output);
+            }
+          }
+        } else if (callee.object.name === "Behaviors") {
+          output.insertRight(callee.object.end, ".create(Renkon)");
+          if (callee.property.type === "Identifier") {
+            const selector = callee.property.name;
+            if (["collect", "_select"].includes(selector)) {
+              quote(node.arguments[1], output);
+            } else if (["or", "_or_index", "some"].includes(selector)) {
+              for (const arg of node.arguments) {
+                quote(arg, output);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+}
+const version$1 = "0.5.7";
+const packageJson = {
+  version: version$1
+};
+const typeKey = Symbol("typeKey");
+const isBehaviorKey = Symbol("isBehavior");
+const eventType = "EventType";
+const delayType = "DelayType";
+const timerType = "TimerType";
+const collectType = "CollectType";
+const selectType = "SelectType";
+const promiseType = "PromiseType";
+const behaviorType = "BehaviorType";
+const onceType = "OnceType";
+const orType = "OrType";
+const sendType = "SendType";
+const receiverType = "ReceiverType";
+const changeType = "ChangeType";
+const gatherType = "GatherType";
+const generatorNextType = "GeneratorNextType";
+const resolvePartType = "ResolvePart";
+_b = typeKey, _a$1 = isBehaviorKey;
+class Stream {
+  constructor(type, isBehavior) {
+    __publicField(this, _b);
+    __publicField(this, _a$1);
+    this[typeKey] = type;
+    this[isBehaviorKey] = isBehavior;
+  }
+  created(_state, _id) {
+    return this;
+  }
+  ready(node, state) {
+    var _a2;
+    for (const inputName of node.inputs) {
+      const varName = state.baseVarName(inputName);
+      const resolved = (_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value;
+      if (resolved === void 0 && !node.forceVars.includes(inputName)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  evaluate(_state, _node, _inputArray, _lastInputArray) {
+    return;
+  }
+  conclude(state, varName) {
+    const inputArray = state.inputArray.get(varName);
+    const inputs = state.nodes.get(varName).inputs;
+    if (!inputArray || !inputs) {
+      return;
+    }
+    for (let i2 = 0; i2 < inputs.length; i2++) {
+      const resolved = state.resolved.get(inputs[i2]);
+      if (resolved === void 0) {
+        inputArray[i2] = void 0;
+      }
+    }
+    return;
+  }
+}
+class DelayedEvent extends Stream {
+  constructor(delay, varName, isBehavior) {
+    super(delayType, isBehavior);
+    __publicField(this, "delay");
+    __publicField(this, "varName");
+    this.delay = delay;
+    this.varName = varName;
+  }
+  ready(node, state) {
+    const output = node.outputs;
+    const scratch = state.scratch.get(output);
+    if ((scratch == null ? void 0 : scratch.queue.length) > 0) {
+      return true;
+    }
+    return state.defaultReady(node);
+  }
+  created(state, id) {
+    if (!state.scratch.get(id)) {
+      state.scratch.set(id, { queue: [] });
+    }
+    return this;
+  }
+  evaluate(state, node, inputArray, lastInputArray) {
+    const value = state.spliceDelayedQueued(state.scratch.get(node.id), state.time);
+    if (value !== void 0) {
+      state.setResolved(node.id, { value, time: state.time });
+    }
+    const inputIndex = 0;
+    const myInput = inputArray[inputIndex];
+    const doIt = this[isBehaviorKey] && myInput !== void 0 && myInput !== (lastInputArray == null ? void 0 : lastInputArray[inputIndex]) || !this[isBehaviorKey] && myInput !== void 0;
+    if (doIt) {
+      const scratch = state.scratch.get(node.id);
+      scratch.queue.push({ time: state.time + this.delay, value: myInput });
+    }
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class TimerEvent extends Stream {
+  constructor(interval, isBehavior) {
+    super(timerType, isBehavior);
+    __publicField(this, "interval");
+    this.interval = interval;
+  }
+  created(_state, _id) {
+    return this;
+  }
+  ready(node, state) {
+    const output = node.outputs;
+    const last = state.scratch.get(output);
+    const interval = this.interval;
+    return last === void 0 || last + interval <= state.time;
+  }
+  evaluate(state, node, _inputArray, _lastInputArray) {
+    const interval = this.interval;
+    const logicalTrigger = interval * Math.floor(state.time / interval);
+    state.setResolved(node.id, { value: logicalTrigger, time: state.time });
+    state.scratch.set(node.id, logicalTrigger);
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class PromiseEvent extends Stream {
+  constructor(promise) {
+    super(promiseType, true);
+    __publicField(this, "promise");
+    this.promise = promise;
+  }
+  created(state, id) {
+    var _a2;
+    const oldPromise = (_a2 = state.scratch.get(id)) == null ? void 0 : _a2.promise;
+    const promise = this.promise;
+    if (oldPromise && promise !== oldPromise) {
+      state.resolved.delete(id);
+    }
+    promise.then((value) => {
+      var _a3;
+      const wasResolved = (_a3 = state.resolved.get(id)) == null ? void 0 : _a3.value;
+      if (!wasResolved) {
+        state.scratch.set(id, { promise });
+        state.setResolved(id, { value, time: state.time });
+      }
+    });
+    return this;
+  }
+}
+class OrStream extends Stream {
+  constructor(varNames, useIndex, collection, isBehavior = false) {
+    super(orType, isBehavior);
+    __publicField(this, "varNames");
+    __publicField(this, "useIndex");
+    __publicField(this, "collection");
+    this.varNames = varNames;
+    this.useIndex = useIndex;
+    this.collection = collection;
+  }
+  evaluate(state, node, inputArray, _lastInputArray) {
+    if (this.collection) {
+      const indices = [];
+      const values = {};
+      for (let i2 = 0; i2 < node.inputs.length; i2++) {
+        if (inputArray[i2] !== void 0) {
+          indices.push(i2);
+        }
+        values[node.inputs[i2]] = inputArray[i2];
+      }
+      if (indices.length === 0) {
+        return;
+      }
+      if (this.useIndex) {
+        state.setResolved(node.id, { value: indices, time: state.time });
+      } else {
+        state.setResolved(node.id, { value: values, time: state.time });
+      }
+      return;
+    }
+    for (let i2 = 0; i2 < node.inputs.length; i2++) {
+      const myInput = inputArray[i2];
+      if (myInput !== void 0) {
+        if (this.useIndex) {
+          state.setResolved(node.id, { value: { index: i2, value: myInput }, time: state.time });
+        } else {
+          state.setResolved(node.id, { value: myInput, time: state.time });
+        }
+        return;
+      }
+    }
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class UserEvent extends Stream {
+  constructor(record, queued) {
+    super(eventType, false);
+    __publicField(this, "record");
+    __publicField(this, "queued");
+    this.record = record;
+    this.queued = !!queued;
+  }
+  created(state, id) {
+    let oldRecord = state.scratch.get(id);
+    if (oldRecord && oldRecord.cleanup && typeof oldRecord.cleanup === "function") {
+      oldRecord.cleanup();
+      oldRecord.cleanup = void 0;
+    }
+    state.scratch.set(id, this.record);
+    return this;
+  }
+  evaluate(state, node, _inputArray, _lastInputArray) {
+    let newValue;
+    if (this.queued) {
+      newValue = state.getEventValues(state.scratch.get(node.id), state.time);
+    } else {
+      newValue = state.getEventValue(state.scratch.get(node.id), state.time);
+    }
+    if (newValue !== void 0) {
+      if (newValue !== null && newValue.then) {
+        newValue.then((value) => {
+          state.setResolved(node.id, { value, time: state.time });
+        });
+      } else {
+        state.setResolved(node.id, { value: newValue, time: state.time });
+      }
+    }
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class SendEvent extends Stream {
+  constructor() {
+    super(sendType, false);
+  }
+}
+class ReceiverEvent extends Stream {
+  constructor(options) {
+    const isBehavior = !!(options == null ? void 0 : options.isBehavior);
+    super(receiverType, isBehavior);
+    __publicField(this, "queued");
+    this.queued = !!(options == null ? void 0 : options.queued);
+  }
+  created(_state, _id) {
+    return this;
+  }
+  evaluate(state, node, _inputArray, _lastInputArray) {
+    const value = state.scratch.get(node.id);
+    if (value !== void 0) {
+      state.setResolved(node.id, { value, time: state.time });
+    }
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      state.scratch.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class ChangeEvent extends Stream {
+  constructor(value) {
+    super(changeType, false);
+    __publicField(this, "value");
+    this.value = value;
+  }
+  created(state, id) {
+    state.scratch.set(id, this.value);
+    return this;
+  }
+  ready(node, state) {
+    var _a2;
+    const resolved = (_a2 = state.resolved.get(state.baseVarName(node.inputs[0]))) == null ? void 0 : _a2.value;
+    if (resolved !== void 0 && resolved === state.scratch.get(node.id)) {
+      return false;
+    }
+    return state.defaultReady(node);
+  }
+  evaluate(state, node, inputArray, _lastInputArray) {
+    state.setResolved(node.id, { value: this.value, time: state.time });
+    state.scratch.set(node.id, inputArray[0]);
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class OnceEvent extends Stream {
+  constructor(value) {
+    super(onceType, false);
+    __publicField(this, "value");
+    this.value = value;
+  }
+  created(state, id) {
+    state.scratch.set(id, this.value);
+    return this;
+  }
+  ready(node, state) {
+    return state.scratch.get(node.id) !== void 0;
+  }
+  evaluate(state, node, _inputArray, _lastInputArray) {
+    state.setResolved(node.id, { value: this.value, time: state.time });
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    state.scratch.delete(varName);
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class Behavior extends Stream {
+  constructor() {
+    super(behaviorType, true);
+  }
+}
+class CollectStream extends Stream {
+  constructor(init, varName, updater, isBehavior) {
+    super(collectType, isBehavior);
+    __publicField(this, "init");
+    __publicField(this, "varName");
+    __publicField(this, "updater");
+    this.init = init;
+    this.varName = varName;
+    this.updater = updater;
+  }
+  created(state, id) {
+    if (this.init && typeof this.init === "object" && this.init.then) {
+      this.init.then((value) => {
+        state.streams.set(id, this);
+        this.init = value;
+        state.setResolved(id, { value, time: state.time });
+        state.scratch.set(id, { current: this.init });
+      });
+      return this;
+    }
+    if (!state.scratch.get(id)) {
+      state.streams.set(id, this);
+      state.setResolved(id, { value: this.init, time: state.time });
+      state.scratch.set(id, { current: this.init });
+    }
+    return this;
+  }
+  evaluate(state, node, inputArray, lastInputArray) {
+    const scratch = state.scratch.get(node.id);
+    if (!scratch) {
+      return;
+    }
+    const inputIndex = node.inputs.indexOf(this.varName);
+    const inputValue = inputArray[inputIndex];
+    if (inputValue !== void 0 && (!lastInputArray || inputValue !== lastInputArray[inputIndex])) {
+      const newValue = this.updater(scratch.current, inputValue);
+      if (newValue !== void 0) {
+        if (newValue !== null && newValue.then) {
+          newValue.then((value) => {
+            state.setResolved(node.id, { value, time: state.time });
+            state.scratch.set(node.id, { current: value });
+          });
+        } else {
+          state.setResolved(node.id, { value: newValue, time: state.time });
+          state.scratch.set(node.id, { current: newValue });
+        }
+      }
+    }
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class SelectStream extends Stream {
+  constructor(init, varName, updaters, isBehavior) {
+    super(selectType, isBehavior);
+    __publicField(this, "init");
+    __publicField(this, "varName");
+    __publicField(this, "updaters");
+    this.init = init;
+    this.varName = varName;
+    this.updaters = updaters;
+  }
+  created(state, id) {
+    if (this.init && typeof this.init === "object" && this.init.then) {
+      this.init.then((value) => {
+        state.streams.set(id, this);
+        this.init = value;
+        state.setResolved(id, { value, time: state.time });
+        state.scratch.set(id, { current: this.init });
+      });
+      return this;
+    }
+    if (!state.scratch.get(id)) {
+      state.streams.set(id, this);
+      state.setResolved(id, { value: this.init, time: state.time });
+      state.scratch.set(id, { current: this.init });
+    }
+    return this;
+  }
+  evaluate(state, node, inputArray, _lastInputArray) {
+    const scratch = state.scratch.get(node.id);
+    if (scratch === void 0) {
+      return;
+    }
+    const inputIndex = node.inputs.indexOf(this.varName);
+    const orRecord = inputArray[inputIndex];
+    if (orRecord !== void 0) {
+      const newValue = this.updaters[orRecord.index](scratch.current, orRecord.value);
+      if (newValue !== void 0) {
+        if (newValue !== null && newValue.then) {
+          newValue.then((value) => {
+            state.setResolved(node.id, { value, time: state.time });
+            state.scratch.set(node.id, { current: value });
+          });
+        } else {
+          state.setResolved(node.id, { value: newValue, time: state.time });
+          state.scratch.set(node.id, { current: newValue });
+        }
+      }
+    }
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class GatherStream extends Stream {
+  constructor(regexp, isBehavior) {
+    super(gatherType, isBehavior);
+    __publicField(this, "regexp");
+    this.regexp = new RegExp(regexp);
+  }
+  created(_state, _id) {
+    return this;
+  }
+  evaluate(state, node, inputArray, lastInputArray) {
+    if (state.equals(inputArray, lastInputArray)) {
+      return;
+    }
+    const inputs = node.inputs;
+    const validInputNames = [];
+    const validInputs = [];
+    let hasPromise = false;
+    for (let i2 = 0; i2 < inputs.length; i2++) {
+      const v2 = inputArray[i2];
+      if (v2 !== void 0) {
+        validInputNames.push(inputs[i2]);
+        validInputs.push(v2);
+        if (v2 !== null && v2.then) {
+          hasPromise = true;
+        }
+      }
+    }
+    if (hasPromise) {
+      Promise.all(validInputs).then((values) => {
+        const result = {};
+        for (let i2 = 0; i2 < validInputNames.length; i2++) {
+          result[validInputNames[i2]] = values[i2];
+        }
+        state.setResolved(node.id, { value: result, time: state.time });
+      });
+    } else {
+      const result = {};
+      for (let i2 = 0; i2 < validInputNames.length; i2++) {
+        result[validInputNames[i2]] = validInputs[i2];
+      }
+      state.setResolved(node.id, { value: result, time: state.time });
+    }
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class ResolvePart extends Stream {
+  constructor(object, isBehavior) {
+    super(resolvePartType, isBehavior);
+    __publicField(this, "promise");
+    __publicField(this, "indices");
+    __publicField(this, "resolved");
+    __publicField(this, "object");
+    this.object = object;
+    if (Array.isArray(this.object)) {
+      const array = this.object;
+      const indices = [...Array(array.length).keys()].filter((i2) => {
+        const elem = this.object[i2];
+        return typeof elem === "object" && elem !== null && elem.then;
+      });
+      const promises = indices.map((i2) => array[i2]);
+      this.promise = Promise.all(promises);
+      this.indices = indices;
+    } else {
+      const keys2 = Object.keys(this.object).filter((k2) => {
+        const elem = this.object[k2];
+        return typeof elem === "object" && elem !== null && elem.then;
+      });
+      const promises = keys2.map((k2) => this.object[k2]);
+      this.promise = Promise.all(promises);
+      this.indices = keys2;
+    }
+    this.resolved = false;
+  }
+  created(state, id) {
+    if (!this.resolved) {
+      this.promise.then((values) => {
+        var _a2;
+        const wasResolved = (_a2 = state.resolved.get(id)) == null ? void 0 : _a2.value;
+        if (!wasResolved) {
+          this.resolved = true;
+          if (Array.isArray(this.object)) {
+            const result = [...this.object];
+            const indices = this.indices;
+            for (let i2 of indices) {
+              result[indices[i2]] = values[i2];
+            }
+            state.setResolved(id, { value: result, time: state.time });
+            return result;
+          } else {
+            const result = { ...this.object };
+            const indices = this.indices;
+            for (let i2 = 0; i2 < indices.length; i2++) {
+              result[indices[i2]] = values[i2];
+            }
+            state.setResolved(id, { value: result, time: state.time });
+            return result;
+          }
+        }
+      });
+    }
+    return this;
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    if (this[isBehaviorKey]) {
+      return;
+    }
+    if (((_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value) !== void 0) {
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
+class GeneratorNextEvent extends Stream {
+  constructor(generator) {
+    super(generatorNextType, false);
+    __publicField(this, "promise");
+    __publicField(this, "generator");
+    const promise = generator.next();
+    this.promise = promise;
+    this.generator = generator;
+  }
+  created(state, id) {
+    if (this.generator.done) {
+      return this;
+    }
+    const promise = this.promise;
+    promise.then((value) => {
+      var _a2;
+      const wasResolved = (_a2 = state.resolved.get(id)) == null ? void 0 : _a2.value;
+      if (!wasResolved) {
+        state.setResolved(id, { value, time: state.time });
+      }
+    });
+    return this;
+  }
+  conclude(state, varName) {
+    var _a2;
+    super.conclude(state, varName);
+    const value = (_a2 = state.resolved.get(varName)) == null ? void 0 : _a2.value;
+    if (value !== void 0) {
+      if (!value.done) {
+        if (!this.generator.done) {
+          const promise = this.generator.next();
+          promise.then((value2) => {
+            var _a3;
+            const wasResolved = (_a3 = state.resolved.get(varName)) == null ? void 0 : _a3.value;
+            if (!wasResolved) {
+              state.setResolved(varName, { value: value2, time: state.time });
+            }
+          });
+          this.promise = promise;
+        }
+      } else {
+        this.generator.done = true;
+      }
+      state.resolved.delete(varName);
+      return varName;
+    }
+    return;
+  }
+}
 class TSCompiler {
   constructor() {
     __publicField(this, "sources");
@@ -9843,8 +9896,16 @@ class TSCompiler {
     this.results = /* @__PURE__ */ new Map();
   }
   compile(tsCode, _path) {
-    const compiled = detype(tsCode);
-    return compiled;
+    try {
+      const compiled = detype(tsCode);
+      return compiled;
+    } catch (error) {
+      const e = error;
+      const message = e.message + `: error around -> 
+"${tsCode.slice(e.pos - 30, e.pos + 30)}`;
+      console.log(message);
+      throw error;
+    }
   }
 }
 function translateTS(text2, path2) {
@@ -9860,10 +9921,14 @@ function isGenerator(value) {
   return typeof value === "object" && value.constructor === prototypicalGeneratorFunction.constructor;
 }
 const defaultHandler = (ev) => ev;
-function eventBody(options) {
-  let { forObserve, callback, dom, eventName, eventHandler, state, queued } = options;
+function eventBody(args) {
+  let { forObserve, callback, dom, eventName, eventHandler, state, queued, options } = args;
   let record = { queue: [] };
   let myHandler;
+  let myOptions;
+  if (options) {
+    myOptions = { ...options };
+  }
   let realDom;
   if (typeof dom === "string") {
     realDom = document.querySelector(dom);
@@ -9888,10 +9953,18 @@ function eventBody(options) {
       myHandler = defaultHandler;
     }
     if (myHandler) {
-      realDom.addEventListener(eventName, myHandler);
+      if (myOptions) {
+        realDom.addEventListener(eventName, myHandler, myOptions);
+      } else {
+        realDom.addEventListener(eventName, myHandler);
+      }
     }
     if (eventHandler === null) {
-      realDom.removeEventListener(eventName, myHandler);
+      if (myOptions) {
+        realDom.removeEventListener(eventName, myHandler, myOptions);
+      } else {
+        realDom.removeEventListener(eventName, myHandler);
+      }
     }
   }
   if (forObserve && callback) {
@@ -9917,7 +9990,21 @@ class Events {
     return new Events(state);
   }
   listener(dom, eventName, handler, options) {
-    return eventBody({ forObserve: false, dom, eventName, eventHandler: handler, state: this.programState, queued: !!(options == null ? void 0 : options.queued) });
+    let myOptions;
+    if (options) {
+      myOptions = { ...options };
+      delete myOptions.queued;
+    }
+    const queued = !!(options == null ? void 0 : options.queued);
+    return eventBody({
+      forObserve: false,
+      dom,
+      eventName,
+      eventHandler: handler,
+      state: this.programState,
+      queued,
+      options: myOptions
+    });
   }
   delay(varName, delay) {
     return new DelayedEvent(delay, varName, false);
@@ -9935,10 +10022,13 @@ class Events {
     return new GeneratorNextEvent(generator);
   }
   or(...varNames) {
-    return new OrStream(varNames, false);
+    return new OrStream(varNames, false, false);
+  }
+  some(...varNames) {
+    return new OrStream(varNames, false, true);
   }
   _or_index(...varNames) {
-    return new OrStream(varNames, true);
+    return new OrStream(varNames, true, false);
   }
   collect(init, varName, updater) {
     return new CollectStream(init, varName, updater, false);
@@ -9952,11 +10042,16 @@ class Events {
     this.programState.registerEvent(receiver, value);
     return new SendEvent();
   }
-  receiver() {
-    return new ReceiverEvent(void 0);
+  receiver(options) {
+    return new ReceiverEvent(options);
   }
   observe(callback, options) {
-    return eventBody({ forObserve: true, callback, state: this.programState, queued: options == null ? void 0 : options.queued });
+    return eventBody({
+      forObserve: true,
+      callback,
+      state: this.programState,
+      queued: options == null ? void 0 : options.queued
+    });
   }
   message(event, data2, directWindow) {
     const isInIframe = window.top !== window;
@@ -10007,10 +10102,11 @@ class Behaviors {
   gather(regexp) {
     return new GatherStream(regexp, true);
   }
-  /*
-  startsWith(init:any, varName:VarName) {
-      return new CollectStream(init, varName, (_old, v) => v, true);
-  }*/
+  receiver(options) {
+    let args = { ...options };
+    args.isBehavior = true;
+    return new ReceiverEvent(args);
+  }
 }
 function topologicalSort(nodes) {
   let order = [];
@@ -10024,8 +10120,8 @@ function topologicalSort(nodes) {
   }
   function removeEdges(src, dst) {
     let edges = [];
-    let index2 = dst.inputs.indexOf(src.outputs);
-    if (index2 >= 0) {
+    let index = dst.inputs.indexOf(src.outputs);
+    if (index >= 0) {
       edges.push(src.outputs);
     }
     dst.inputs = dst.inputs.filter((input) => !edges.includes(input));
@@ -10131,7 +10227,7 @@ class ProgramState {
       }
     }, 0);
   }
-  setupProgram(scriptsArg) {
+  setupProgram(scriptsArg, path2 = "") {
     const invalidatedStreamNames = /* @__PURE__ */ new Set();
     const scripts = scriptsArg.map((s) => {
       if (typeof s === "string") {
@@ -10182,7 +10278,7 @@ class ProgramState {
       }
     }
     const translated = [...jsNodes].map(([_id, jsNode]) => ({ id: jsNode.id, code: transpileJavaScript(jsNode) }));
-    const evaluated = translated.map((tr) => this.evalCode(tr));
+    const evaluated = translated.map((tr) => this.evalCode(tr, path2));
     for (let [id2, node] of jsNodes) {
       if (node.extraType["gather"]) {
         const r = node.extraType["gather"];
@@ -10243,8 +10339,8 @@ class ProgramState {
       }
     }
   }
-  updateProgram(scripts) {
-    this.futureScripts = scripts;
+  updateProgram(scripts, path2 = "") {
+    this.futureScripts = { scripts, path: path2 };
   }
   evaluate(now) {
     this.time = now - this.startTime;
@@ -10280,7 +10376,10 @@ class ProgramState {
           );
         } else {
           this.changeList.delete(id);
-          outputs = new ReceiverEvent(change);
+          if (change !== void 0) {
+            this.setResolved(id, { value: change, time: this.time });
+          }
+          outputs = this.streams.get(id);
         }
         this.inputArray.set(id, inputArray);
         const maybeValue = outputs;
@@ -10325,20 +10424,22 @@ class ProgramState {
       stream.conclude(this, id);
     }
     if (this.futureScripts) {
-      const scripts = this.futureScripts;
+      const { scripts, path: path2 } = this.futureScripts;
       delete this.futureScripts;
-      this.setupProgram(scripts);
+      this.setupProgram(scripts, path2);
     }
     return this.updated;
   }
-  evalCode(arg) {
+  evalCode(arg, path2) {
     const { id, code: code2 } = arg;
     const hasWindow = typeof window !== "undefined";
     let body;
+    const p2 = path2 === "" || !path2.endsWith("/") ? path2 : path2.slice(0, -1);
     if (hasWindow) {
-      body = `return ${code2} //# sourceURL=${window.location.origin}/node/${id}`;
+      const base2 = window.location.origin === "null" ? window.location.pathname : window.location.origin;
+      body = `return ${code2} //# sourceURL=${base2}/${p2}/node/${id}`;
     } else {
-      body = `return ${code2} //# sourceURL=/node/${id}`;
+      body = `return ${code2} //# sourceURL=/${p2}/node/${id}`;
     }
     let func = new Function("Events", "Behaviors", "Renkon", body);
     let val = func(Events, Behaviors, this);
@@ -10414,7 +10515,20 @@ class ProgramState {
     return varName[0] !== "$" ? varName : varName.slice(1);
   }
   registerEvent(receiver, value) {
-    this.changeList.set(receiver, value);
+    const stream = this.streams.get(receiver);
+    if (!stream) {
+      return;
+    }
+    if (stream.queued) {
+      let ary = this.changeList.get(receiver);
+      if (!ary) {
+        ary = [];
+        this.changeList.set(receiver, ary);
+      }
+      ary.push(value);
+    } else {
+      this.changeList.set(receiver, value);
+    }
     if (this.noTicking) {
       this.noTickingEvaluator();
     }
@@ -10457,15 +10571,26 @@ class ProgramState {
   }
   component(func) {
     return (input, key) => {
-      let programState = this.programStates.get(key);
-      if (!programState) {
+      let programState;
+      let returnValues = null;
+      let newProgramState = false;
+      let subProgramState = this.programStates.get(key);
+      if (!subProgramState) {
+        newProgramState = true;
         programState = new ProgramState(this.time);
         programState.lastReturned = void 0;
-        this.programStates.set(key, programState);
+      } else {
+        programState = subProgramState.programState;
+        returnValues = subProgramState.returnArray;
       }
-      const { params, returnArray, output } = getFunctionBody(func.toString(), false);
-      const receivers = params.map((r) => `const ${r} = undefined;`).join("\n");
-      programState.setupProgram([receivers, output]);
+      const maybeOldFunc = subProgramState == null ? void 0 : subProgramState.func;
+      if (newProgramState || func !== maybeOldFunc) {
+        const { params, returnArray, output } = getFunctionBody(func.toString(), false);
+        returnValues = returnArray;
+        const receivers = params.map((r) => `const ${r} = Events.receiver();`).join("\n");
+        programState.setupProgram([receivers, output], func.name);
+        this.programStates.set(key, { programState, func, returnArray });
+      }
       const trigger = (input2) => {
         for (let key2 in input2) {
           programState.setResolvedForSubgraph(
@@ -10476,8 +10601,8 @@ class ProgramState {
         programState.evaluate(this.time);
         const result = {};
         const resultTest = [];
-        if (returnArray) {
-          for (const n2 of returnArray) {
+        if (returnValues) {
+          for (const n2 of returnValues) {
             const v2 = programState.resolved.get(n2);
             resultTest.push(v2 ? v2.value : void 0);
             if (v2 && v2.value !== void 0) {
@@ -11509,8 +11634,8 @@ class ChangeSet extends ChangeDesc {
       if (ins >= 0) {
         sections[i2] = ins;
         sections[i2 + 1] = len;
-        let index2 = i2 >> 1;
-        while (inserted.length < index2)
+        let index = i2 >> 1;
+        while (inserted.length < index)
           inserted.push(Text$1.empty);
         inserted.push(len ? doc2.slice(pos, pos + len) : Text$1.empty);
       }
@@ -11717,11 +11842,11 @@ function addSection(sections, len, ins, forceJoin = false) {
 function addInsert(values, sections, value) {
   if (value.length == 0)
     return;
-  let index2 = sections.length - 2 >> 1;
-  if (index2 < values.length) {
+  let index = sections.length - 2 >> 1;
+  if (index < values.length) {
     values[values.length - 1] = values[values.length - 1].append(value);
   } else {
-    while (values.length < index2)
+    while (values.length < index)
       values.push(Text$1.empty);
     values.push(value);
   }
@@ -11867,12 +11992,12 @@ class SectionIter {
     return this.ins < 0 ? this.len : this.ins;
   }
   get text() {
-    let { inserted } = this.set, index2 = this.i - 2 >> 1;
-    return index2 >= inserted.length ? Text$1.empty : inserted[index2];
+    let { inserted } = this.set, index = this.i - 2 >> 1;
+    return index >= inserted.length ? Text$1.empty : inserted[index];
   }
   textBit(len) {
-    let { inserted } = this.set, index2 = this.i - 2 >> 1;
-    return index2 >= inserted.length && !len ? Text$1.empty : inserted[index2].slice(this.off, len == null ? void 0 : this.off + len);
+    let { inserted } = this.set, index = this.i - 2 >> 1;
+    return index >= inserted.length && !len ? Text$1.empty : inserted[index].slice(this.off, len == null ? void 0 : this.off + len);
   }
   forward(len) {
     if (len == this.len)
@@ -13410,8 +13535,8 @@ class RangeSet {
   /**
   @internal
   */
-  chunkEnd(index2) {
-    return this.chunkPos[index2] + this.chunk[index2].length;
+  chunkEnd(index) {
+    return this.chunkPos[index] + this.chunk[index].length;
   }
   /**
   Update the range set, optionally adding new ranges or filtering
@@ -13784,8 +13909,8 @@ class LayerCursor {
       }
     }
   }
-  setRangeIndex(index2) {
-    if (index2 == this.layer.chunk[this.chunkIndex].value.length) {
+  setRangeIndex(index) {
+    if (index == this.layer.chunk[this.chunkIndex].value.length) {
       this.chunkIndex++;
       if (this.skip) {
         while (this.chunkIndex < this.layer.chunk.length && this.skip.has(this.layer.chunk[this.chunkIndex]))
@@ -13793,7 +13918,7 @@ class LayerCursor {
       }
       this.rangeIndex = 0;
     } else {
-      this.rangeIndex = index2;
+      this.rangeIndex = index;
     }
   }
   nextChunk() {
@@ -13855,9 +13980,9 @@ class HeapCursor {
     }
   }
 }
-function heapBubble(heap, index2) {
-  for (let cur2 = heap[index2]; ; ) {
-    let childIndex = (index2 << 1) + 1;
+function heapBubble(heap, index) {
+  for (let cur2 = heap[index]; ; ) {
+    let childIndex = (index << 1) + 1;
     if (childIndex >= heap.length)
       break;
     let child = heap[childIndex];
@@ -13868,8 +13993,8 @@ function heapBubble(heap, index2) {
     if (cur2.compare(child) < 0)
       break;
     heap[childIndex] = cur2;
-    heap[index2] = child;
-    index2 = childIndex;
+    heap[index] = child;
+    index = childIndex;
   }
 }
 class SpanCursor {
@@ -13902,10 +14027,10 @@ class SpanCursor {
       this.removeActive(this.minActive);
     this.cursor.forward(pos, side);
   }
-  removeActive(index2) {
-    remove(this.active, index2);
-    remove(this.activeTo, index2);
-    remove(this.activeRank, index2);
+  removeActive(index) {
+    remove(this.active, index);
+    remove(this.activeTo, index);
+    remove(this.activeRank, index);
     this.minActive = findMinIndex(this.active, this.activeTo);
   }
   addActive(trackOpen) {
@@ -14021,15 +14146,15 @@ function sameValues(a2, b2) {
       return false;
   return true;
 }
-function remove(array, index2) {
-  for (let i2 = index2, e = array.length - 1; i2 < e; i2++)
+function remove(array, index) {
+  for (let i2 = index, e = array.length - 1; i2 < e; i2++)
     array[i2] = array[i2 + 1];
   array.pop();
 }
-function insert(array, index2, value) {
-  for (let i2 = array.length - 1; i2 >= index2; i2--)
+function insert(array, index, value) {
+  for (let i2 = array.length - 1; i2 >= index; i2--)
     array[i2 + 1] = array[i2];
-  array[index2] = value;
+  array[index] = value;
 }
 function findMinIndex(value, array) {
   let found = -1, foundPos = 1e9;
@@ -14064,8 +14189,8 @@ function findColumn(string2, col, tabSize, strict) {
   }
   return strict === true ? -1 : string2.length;
 }
-const C = "ͼ";
-const COUNT = typeof Symbol == "undefined" ? "__" + C : Symbol.for(C);
+const C$1 = "ͼ";
+const COUNT = typeof Symbol == "undefined" ? "__" + C$1 : Symbol.for(C$1);
 const SET = typeof Symbol == "undefined" ? "__styleSet" + Math.floor(Math.random() * 1e8) : Symbol("styleSet");
 const top = typeof globalThis != "undefined" ? globalThis : typeof window != "undefined" ? window : {};
 class StyleModule {
@@ -14114,7 +14239,7 @@ class StyleModule {
   static newName() {
     let id = top[COUNT] || 1;
     top[COUNT] = id + 1;
-    return C + id.toString(36);
+    return C$1 + id.toString(36);
   }
   // :: (union<Document, ShadowRoot>, union<[StyleModule], StyleModule>, ?{nonce: ?string})
   //
@@ -14159,18 +14284,18 @@ class StyleSet {
     let sheet = this.sheet;
     let pos = 0, j = 0;
     for (let i2 = 0; i2 < modules.length; i2++) {
-      let mod = modules[i2], index2 = this.modules.indexOf(mod);
-      if (index2 < j && index2 > -1) {
-        this.modules.splice(index2, 1);
+      let mod = modules[i2], index = this.modules.indexOf(mod);
+      if (index < j && index > -1) {
+        this.modules.splice(index, 1);
         j--;
-        index2 = -1;
+        index = -1;
       }
-      if (index2 == -1) {
+      if (index == -1) {
         this.modules.splice(j++, 0, mod);
         if (sheet) for (let k2 = 0; k2 < mod.rules.length; k2++)
           sheet.insertRule(mod.rules[k2], pos++);
       } else {
-        while (j < index2) pos += this.modules[j++].rules.length;
+        while (j < index) pos += this.modules[j++].rules.length;
         pos += mod.rules.length;
         j++;
       }
@@ -14326,10 +14451,10 @@ function isEquivalentPosition(node, off, targetNode, targetOff) {
   return targetNode ? scanFor(node, off, targetNode, targetOff, -1) || scanFor(node, off, targetNode, targetOff, 1) : false;
 }
 function domIndex(node) {
-  for (var index2 = 0; ; index2++) {
+  for (var index = 0; ; index++) {
     node = node.previousSibling;
     if (!node)
-      return index2;
+      return index;
   }
 }
 function isBlockElement(node) {
@@ -16041,8 +16166,8 @@ class ContentBuilder {
     if (this.openStart < 0)
       this.openStart = openStart;
   }
-  point(from, to, deco, active, openStart, index2) {
-    if (this.disallowBlockEffectsFor[index2] && deco instanceof PointDecoration) {
+  point(from, to, deco, active, openStart, index) {
+    if (this.disallowBlockEffectsFor[index] && deco instanceof PointDecoration) {
       if (deco.block)
         throw new RangeError("Block decorations may not be specified via plugins");
       if (to > this.doc.lineAt(this.pos).to)
@@ -16176,14 +16301,14 @@ class BidiSpan {
   /**
   @internal
   */
-  static find(order, index2, level, assoc) {
+  static find(order, index, level, assoc) {
     let maybe = -1;
     for (let i2 = 0; i2 < order.length; i2++) {
       let span = order[i2];
-      if (span.from <= index2 && span.to >= index2) {
+      if (span.from <= index && span.to >= index) {
         if (span.level == level)
           return i2;
-        if (maybe < 0 || (assoc != 0 ? assoc < 0 ? span.from < index2 : span.to > index2 : order[maybe].level > span.level))
+        if (maybe < 0 || (assoc != 0 ? assoc < 0 ? span.from < index : span.to > index : order[maybe].level > span.level))
           maybe = i2;
       }
     }
@@ -23533,8 +23658,8 @@ class HoverPlugin {
   }
   get tooltip() {
     let plugin = this.view.plugin(tooltipPlugin);
-    let index2 = plugin ? plugin.manager.tooltips.findIndex((t2) => t2.create == HoverTooltipHost.create) : -1;
-    return index2 > -1 ? plugin.manager.tooltipViews[index2] : null;
+    let index = plugin ? plugin.manager.tooltips.findIndex((t2) => t2.create == HoverTooltipHost.create) : -1;
+    return index > -1 ? plugin.manager.tooltipViews[index] : null;
   }
   mousemove(event) {
     var _a2, _b2;
@@ -23668,8 +23793,8 @@ const panelConfig = /* @__PURE__ */ Facet.define({
 });
 function getPanel(view2, panel) {
   let plugin = view2.plugin(panelPlugin);
-  let index2 = plugin ? plugin.specs.indexOf(panel) : -1;
-  return index2 > -1 ? plugin.panels[index2] : null;
+  let index = plugin ? plugin.specs.indexOf(panel) : -1;
+  return index > -1 ? plugin.panels[index] : null;
 }
 const panelPlugin = /* @__PURE__ */ ViewPlugin.fromClass(class {
   constructor(view2) {
@@ -24584,9 +24709,9 @@ class Tree {
 }
 Tree.empty = new Tree(NodeType.none, [], [], 0);
 class FlatBufferCursor {
-  constructor(buffer, index2) {
+  constructor(buffer, index) {
     this.buffer = buffer;
-    this.index = index2;
+    this.index = index;
   }
   get id() {
     return this.buffer[this.index - 4];
@@ -24630,27 +24755,27 @@ class TreeBuffer {
   */
   toString() {
     let result = [];
-    for (let index2 = 0; index2 < this.buffer.length; ) {
-      result.push(this.childString(index2));
-      index2 = this.buffer[index2 + 3];
+    for (let index = 0; index < this.buffer.length; ) {
+      result.push(this.childString(index));
+      index = this.buffer[index + 3];
     }
     return result.join(",");
   }
   /**
   @internal
   */
-  childString(index2) {
-    let id = this.buffer[index2], endIndex = this.buffer[index2 + 3];
+  childString(index) {
+    let id = this.buffer[index], endIndex = this.buffer[index + 3];
     let type = this.set.types[id], result = type.name;
     if (/\W/.test(result) && !type.isError)
       result = JSON.stringify(result);
-    index2 += 4;
-    if (endIndex == index2)
+    index += 4;
+    if (endIndex == index)
       return result;
     let children = [];
-    while (index2 < endIndex) {
-      children.push(this.childString(index2));
-      index2 = this.buffer[index2 + 3];
+    while (index < endIndex) {
+      children.push(this.childString(index));
+      index = this.buffer[index + 3];
     }
     return result + "(" + children.join(",") + ")";
   }
@@ -24764,11 +24889,11 @@ class BaseNode {
   }
 }
 class TreeNode extends BaseNode {
-  constructor(_tree, from, index2, _parent) {
+  constructor(_tree, from, index, _parent) {
     super();
     this._tree = _tree;
     this.from = from;
-    this.index = index2;
+    this.index = index;
     this._parent = _parent;
   }
   get type() {
@@ -24789,9 +24914,9 @@ class TreeNode extends BaseNode {
         if (next instanceof TreeBuffer) {
           if (mode & IterMode.ExcludeBuffers)
             continue;
-          let index2 = next.findChild(0, next.buffer.length, dir, pos - start, side);
-          if (index2 > -1)
-            return new BufferNode(new BufferContext(parent, next, i2, start), null, index2);
+          let index = next.findChild(0, next.buffer.length, dir, pos - start, side);
+          if (index > -1)
+            return new BufferNode(new BufferContext(parent, next, i2, start), null, index);
         } else if (mode & IterMode.IncludeAnonymous || (!next.type.isAnonymous || hasChild(next))) {
           let mounted;
           if (!(mode & IterMode.IgnoreMounts) && (mounted = MountedTree.get(next)) && !mounted.overlay)
@@ -24930,10 +25055,10 @@ function matchNodeContext(node, context, i2 = context.length - 1) {
   return true;
 }
 class BufferContext {
-  constructor(parent, buffer, index2, start) {
+  constructor(parent, buffer, index, start) {
     this.parent = parent;
     this.buffer = buffer;
-    this.index = index2;
+    this.index = index;
     this.start = start;
   }
 }
@@ -24947,17 +25072,17 @@ class BufferNode extends BaseNode {
   get to() {
     return this.context.start + this.context.buffer.buffer[this.index + 2];
   }
-  constructor(context, _parent, index2) {
+  constructor(context, _parent, index) {
     super();
     this.context = context;
     this._parent = _parent;
-    this.index = index2;
-    this.type = context.buffer.set.types[context.buffer.buffer[index2]];
+    this.index = index;
+    this.type = context.buffer.set.types[context.buffer.buffer[index]];
   }
   child(dir, pos, side) {
     let { buffer } = this.context;
-    let index2 = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], dir, pos - this.context.start, side);
-    return index2 < 0 ? null : new BufferNode(this.context, this, index2);
+    let index = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], dir, pos - this.context.start, side);
+    return index < 0 ? null : new BufferNode(this.context, this, index);
   }
   get firstChild() {
     return this.child(
@@ -24995,8 +25120,8 @@ class BufferNode extends BaseNode {
     if (mode & IterMode.ExcludeBuffers)
       return null;
     let { buffer } = this.context;
-    let index2 = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], side > 0 ? 1 : -1, pos - this.context.start, side);
-    return index2 < 0 ? null : new BufferNode(this.context, this, index2);
+    let index = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], side > 0 ? 1 : -1, pos - this.context.start, side);
+    return index < 0 ? null : new BufferNode(this.context, this, index);
   }
   get parent() {
     return this._parent || this.context.parent.nextSignificantParent();
@@ -25133,12 +25258,12 @@ class TreeCursor {
     this.to = node.to;
     return true;
   }
-  yieldBuf(index2, type) {
-    this.index = index2;
+  yieldBuf(index, type) {
+    this.index = index;
     let { start, buffer } = this.buffer;
-    this.type = type || buffer.set.types[buffer.buffer[index2]];
-    this.from = start + buffer.buffer[index2 + 1];
-    this.to = start + buffer.buffer[index2 + 2];
+    this.type = type || buffer.set.types[buffer.buffer[index]];
+    this.from = start + buffer.buffer[index + 1];
+    this.to = start + buffer.buffer[index + 2];
     return true;
   }
   /**
@@ -25167,11 +25292,11 @@ class TreeCursor {
     if (!this.buffer)
       return this.yield(this._tree.nextChild(dir < 0 ? this._tree._tree.children.length - 1 : 0, dir, pos, side, this.mode));
     let { buffer } = this.buffer;
-    let index2 = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], dir, pos - this.buffer.start, side);
-    if (index2 < 0)
+    let index = buffer.findChild(this.index + 4, buffer.buffer[this.index + 3], dir, pos - this.buffer.start, side);
+    if (index < 0)
       return false;
     this.stack.push(this.index);
-    return this.yieldBuf(index2);
+    return this.yieldBuf(index);
   }
   /**
   Move the cursor to this node's first child. When this returns
@@ -25280,7 +25405,7 @@ class TreeCursor {
     return this.sibling(-1);
   }
   atLastNode(dir) {
-    let index2, parent, { buffer } = this;
+    let index, parent, { buffer } = this;
     if (buffer) {
       if (dir > 0) {
         if (this.index < buffer.buffer.buffer.length)
@@ -25290,13 +25415,13 @@ class TreeCursor {
           if (buffer.buffer.buffer[i2 + 3] < this.index)
             return false;
       }
-      ({ index: index2, parent } = buffer);
+      ({ index, parent } = buffer);
     } else {
-      ({ index: index2, _parent: parent } = this._tree);
+      ({ index, _parent: parent } = this._tree);
     }
-    for (; parent; { index: index2, _parent: parent } = parent) {
-      if (index2 > -1)
-        for (let i2 = index2 + dir, e = dir < 0 ? -1 : parent._tree.children.length; i2 != e; i2 += dir) {
+    for (; parent; { index, _parent: parent } = parent) {
+      if (index > -1)
+        for (let i2 = index + dir, e = dir < 0 ? -1 : parent._tree.children.length; i2 != e; i2 += dir) {
           let child = parent._tree.children[i2];
           if (this.mode & IterMode.IncludeAnonymous || child instanceof TreeBuffer || !child.type.isAnonymous || hasChild(child))
             return false;
@@ -25360,16 +25485,16 @@ class TreeCursor {
       return this._tree;
     let cache = this.bufferNode, result = null, depth = 0;
     if (cache && cache.context == this.buffer) {
-      scan: for (let index2 = this.index, d2 = this.stack.length; d2 >= 0; ) {
+      scan: for (let index = this.index, d2 = this.stack.length; d2 >= 0; ) {
         for (let c2 = cache; c2; c2 = c2._parent)
-          if (c2.index == index2) {
-            if (index2 == this.index)
+          if (c2.index == index) {
+            if (index == this.index)
               return c2;
             result = c2;
             depth = d2 + 1;
             break scan;
           }
-        index2 = this.stack[--d2];
+        index = this.stack[--d2];
       }
     }
     for (let i2 = depth; i2 < this.stack.length; i2++)
@@ -25470,9 +25595,9 @@ function buildTree(data2) {
     let startPos = start - parentStart;
     if (end - start <= maxBufferLength && (buffer2 = findBufferSize(cursor.pos - minPos, inRepeat))) {
       let data3 = new Uint16Array(buffer2.size - buffer2.skip);
-      let endPos = cursor.pos - buffer2.size, index2 = data3.length;
+      let endPos = cursor.pos - buffer2.size, index = data3.length;
       while (cursor.pos > endPos)
-        index2 = copyToBuffer(buffer2.start, data3, index2);
+        index = copyToBuffer(buffer2.start, data3, index);
       node = new TreeBuffer(data3, end - buffer2.start, nodeSet);
       startPos = buffer2.start - parentStart;
     } else {
@@ -25614,26 +25739,26 @@ function buildTree(data2) {
     }
     return result.size > 4 ? result : void 0;
   }
-  function copyToBuffer(bufferStart, buffer2, index2) {
+  function copyToBuffer(bufferStart, buffer2, index) {
     let { id, start, end, size } = cursor;
     cursor.next();
     if (size >= 0 && id < minRepeatType) {
-      let startIndex = index2;
+      let startIndex = index;
       if (size > 4) {
         let endPos = cursor.pos - (size - 4);
         while (cursor.pos > endPos)
-          index2 = copyToBuffer(bufferStart, buffer2, index2);
+          index = copyToBuffer(bufferStart, buffer2, index);
       }
-      buffer2[--index2] = startIndex;
-      buffer2[--index2] = end - bufferStart;
-      buffer2[--index2] = start - bufferStart;
-      buffer2[--index2] = id;
+      buffer2[--index] = startIndex;
+      buffer2[--index] = end - bufferStart;
+      buffer2[--index] = start - bufferStart;
+      buffer2[--index] = id;
     } else if (size == -3) {
       contextHash = id;
     } else if (size == -4) {
       lookAhead = id;
     }
-    return index2;
+    return index;
   }
   let children = [], positions = [];
   while (cursor.pos > 0)
@@ -27846,9 +27971,9 @@ function matchingNodes(node, dir, brackets) {
   if (byProp)
     return byProp;
   if (node.name.length == 1) {
-    let index2 = brackets.indexOf(node.name);
-    if (index2 > -1 && index2 % 2 == (dir < 0 ? 1 : 0))
-      return [brackets[index2 + dir]];
+    let index = brackets.indexOf(node.name);
+    if (index > -1 && index % 2 == (dir < 0 ? 1 : 0))
+      return [brackets[index + dir]];
   }
   return null;
 }
@@ -29033,6 +29158,7 @@ const defaultKeymap = /* @__PURE__ */ [
   { key: "Alt-A", run: toggleBlockComment },
   { key: "Ctrl-m", mac: "Shift-Alt-m", run: toggleTabFocusMode }
 ].concat(standardKeymap);
+const indentWithTab = { key: "Tab", run: indentMore, shift: indentLess };
 function crelt() {
   var elt = arguments[0];
   if (typeof elt == "string") elt = document.createElement(elt);
@@ -29143,9 +29269,9 @@ class SearchCursor {
   match(code2, pos, end) {
     let match = null;
     for (let i2 = 0; i2 < this.matches.length; i2 += 2) {
-      let index2 = this.matches[i2], keep = false;
-      if (this.query.charCodeAt(index2) == code2) {
-        if (index2 == this.query.length - 1) {
+      let index = this.matches[i2], keep = false;
+      if (this.query.charCodeAt(index) == code2) {
+        if (index == this.query.length - 1) {
           match = { from: this.matches[i2 + 1], to: end };
         } else {
           this.matches[i2]++;
@@ -29693,11 +29819,11 @@ function regexpCursor(spec, state, from, to) {
     test: spec.wholeWord ? regexpWordTest(state.charCategorizer(state.selection.main.head)) : void 0
   }, from, to);
 }
-function charBefore(str, index2) {
-  return str.slice(findClusterBreak(str, index2, false), index2);
+function charBefore(str, index) {
+  return str.slice(findClusterBreak(str, index, false), index);
 }
-function charAfter(str, index2) {
-  return str.slice(index2, findClusterBreak(str, index2));
+function charAfter(str, index) {
+  return str.slice(index, findClusterBreak(str, index));
 }
 function regexpWordTest(categorizer) {
   return (_from, _to, match) => !match[0].length || (categorizer(charBefore(match.input, match.index)) != CharCategory.Word || categorizer(charAfter(match.input, match.index)) != CharCategory.Word) && (categorizer(charAfter(match.input, match.index + match[0].length)) != CharCategory.Word || categorizer(charBefore(match.input, match.index + match[0].length)) != CharCategory.Word);
@@ -32322,7 +32448,7 @@ const minimalSetup = /* @__PURE__ */ (() => [
     ...historyKeymap
   ])
 ])();
-const index = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const C = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   EditorView,
   basicSetup,
@@ -32494,7 +32620,7 @@ function createEditorDock(renkon, programState) {
   editor.classList.add("editor");
   const editorView = new EditorView({
     doc: renkon.innerHTML.trim(),
-    extensions: [basicSetup, EditorView.lineWrapping],
+    extensions: [basicSetup, EditorView.lineWrapping, keymap.of([indentWithTab])],
     parent: editor
   });
   editorView.dom.style.height = "500px";
@@ -32526,10 +32652,10 @@ async function update(renkon, editorView, programState) {
   let jsxs = jsxElements.map((s) => ({ element: s, code: s.textContent })).filter((s) => s.code);
   const programs = [...text2];
   if (jsxs.length > 0) {
-    const translated = jsxs.map((jsx2, index2) => {
+    const translated = jsxs.map((jsx2, index) => {
       const str = transpileJSX(jsx2.code);
       const div = document.createElement("div");
-      div.id = `jsx-${index2}`;
+      div.id = `jsx-${index}`;
       if (jsx2.element.style.cssText !== "") {
         div.setAttribute("style", jsx2.element.style.cssText);
       }
@@ -33283,9 +33409,10 @@ function newInspector(data2, dom) {
   inspector.fulfilled(data2);
   return inspector;
 }
+const CodeMirror = { ...C, keymap, indentWithTab };
 console.log("Renkon version:" + version);
 export {
-  index as CodeMirror,
+  CodeMirror,
   ProgramState,
   newInspector,
   parseJSX,

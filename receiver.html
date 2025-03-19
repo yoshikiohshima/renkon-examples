@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8"> 
+    </head>
+    <body>
+        <div id="renkon">
+            <script type="reactive">
+                const rec1 = Events.receiver();
+                const rec2 = Events.receiver({queued: true});
+
+                const rec3 = Behaviors.receiver();
+
+                const rec4 = Behaviors.receiver({queued: true});
+
+                ((arg) => {
+                    const v1 = arg * 10 + 1;
+                    const v2 = arg * 10 * 2;
+                    Events.send(rec1, v1);
+                    Events.send(rec1, v2);
+
+                    Events.send(rec2, v1);
+                    Events.send(rec2, v2);
+
+                    Events.send(rec3, v1);
+                    Events.send(rec3, v2);
+
+                    Events.send(rec4, v1);
+                    Events.send(rec4, v2);
+                })(Events.or(one, two));
+
+                const one = Events.delay(Events.once(1), 1000);
+                const two = Events.delay(Events.once(1), 1030);
+
+                console.log("rec1", rec1);
+                console.log("rec2", rec2);
+                console.log("rec3", rec3);
+                console.log("rec4", rec4);
+            </script>
+        </div>
+        <script type="module">
+            import {view} from "./dist/renkon.js";
+            view();
+        </script>
+    </body>
+</html>

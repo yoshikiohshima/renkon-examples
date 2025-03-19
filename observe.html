@@ -27,7 +27,10 @@
             const observer = Events.observe((notify) => {
                 const listeners = [];
                 eventSources.forEach((div) => {
-                    const listener = (evt) => {notify("click: " + evt.target.id)};
+                    const listener = (evt) => {
+                        notify("click: " + evt.target.id);
+                        notify("click second: " + evt.target.id);
+                    };
                     div.addEventListener("click", listener);
                     listeners.push([div, listener]);
                 });
