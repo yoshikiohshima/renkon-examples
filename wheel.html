@@ -2,6 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8"> 
+        <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
   </head>
   <body>
     <div id="renkon">
@@ -9,17 +10,34 @@
             const renkon = document.querySelector("#renkon");
             const padDown = Events.listener(renkon.querySelector("#pad"), "wheel", (evt) => {
                 console.log("---", Date.now());
-                console.log(evt);
+                evt.preventDefault();
+                evt.stopPropagation();
                 console.log(
                     "deltaX", evt.deltaX, "deltaY", evt.deltaY, "deltaMode", evt.deltaMode,
-                    "wheelDelta", evt.wheelDelta, "wheelDeltaX", evt.wheelDeltaX, "wheelDeltaY", evt.wheelDeltaY);
+                    "ctrlKey", evt.ctrlKey)
                 return evt
             });
 
             console.log(padDown);
+
+            Events.listener(document.body, "gesturestart", preventDefault);
+            Events.listener(document.body, "gesturechange", preventDefault);
+            Events.listener(document.body, "gestureend", preventDefault);
+
+            const preventDefault = (evt) => {
+                evt.preventDefault();
+                return evt;
+            };
+            
         </script>
         <div id="pad" style="width: 100px; height: 100px; background-color: blue"></div>
     </div>
+    <style>
+        html, body {
+            overscroll-behavior-x: none;
+            touch-action: none;
+        }
+    </style>
     <script type="module">
       import {view} from "./dist/renkon.js";
       view();
