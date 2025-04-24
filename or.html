@@ -6,8 +6,8 @@
   <body>
     <div id="renkon">
         <script type="reactive">
-            const timer = Events.timer(1000);
-            const ored = Behaviors.or(timer, Behaviors.keep(Events.once(null)));
+            const timer = Events.delay(Events.timer(1000), 500);
+            const ored = Events.or(Behaviors.keep(null), timer);
             console.log(ored)
         </script>
     </div>
