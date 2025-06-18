@@ -12,7 +12,7 @@
                 if (Number.isNaN(result)) {return old;}
                 return result;
             };
-            
+
             const set = (value, n) => {
                 const elem = document.querySelector(n);
                 if (Math.abs(parseFloat(elem.value) - value) < 0.001) {return;}

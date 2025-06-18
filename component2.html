@@ -8,12 +8,11 @@
       <script type="reactive">
           const {h, render} = import("/preact.standalone.module.js");
 
-          const {foo} = import("../component2.js");
-          const component = Renkon.component(foo);
+          const {aComponent} = import("../component2.js");
+          const component = Renkon.component(aComponent);
 
-          const timer = Events.timer(100);
           const instances = [2, 3].map((m, i) => {
-              return component({a: timer, multiplier: m, h}, `${i}`);
+              return component({a: i, multiplier: m, h}, `${i}`);
           });
           const htmls = instances.map((i) => i.html);
       </script>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8"> 
+    </head>
+    <body>
+        <div id="renkon">
+            <script type="reactive">
+                const x = 1;
+
+                ((x) => {
+                    console.log('x', {x})
+                })(x);
+
+                ((x) => {
+                    console.log('xonce', {x})
+                })(Events.once(x));
+            </script>
+        </div>
+        <script type="module">
+            import {view} from "./dist/renkon.js";
+            view();
+        </script>
+    </body>
+</html>
