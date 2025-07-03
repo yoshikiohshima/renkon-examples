@@ -6,14 +6,15 @@
   <body>
     <div id="renkon">
       <script type="reactive">
-      const a = 32;
-      const b = Behaviors.timer(100);
-      Renkon.inspector(true);
+          const a = 32;
+          const b = Behaviors.timer(100);
+          window.newInspector(true, document.querySelector("#foo"));
       </script>
       <div id="foo"></div>
     </div>
     <script type="module">
-      import {view} from "./dist/renkon.js";
+        import {view, newInspector} from "./dist/renkon-web.js";
+        window.newInspector = newInspector;
       view();
     </script>
   </body>

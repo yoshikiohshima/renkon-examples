@@ -9,10 +9,11 @@
           const {foo} = import("../component3.js");
           const {bar} = import("../component4.js");
           Renkon.merge(foo, bar);
+          console.log(c, m);
       </script>
     </div>
     <script type="module">
-      import {view} from "./dist/renkon.js";
+      import {view} from "./dist/renkon-web.js";
       view();
     </script>
   </body>

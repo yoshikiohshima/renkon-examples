@@ -6,20 +6,19 @@
   <body>
     <div id="renkon">
       <script type="reactive">
-        const {foo} = import("../component.js");
-        const sub = Renkon.renkonify(foo);
-        const {h, render} = import("/preact.standalone.module.js");
-        const gen = sub({a: 3, b: 4});
-        const value = gen.value;
-        const html = value.html;
-        console.log(html);
+          const {foo} = import("../component.js");
+          const sub = Renkon.component(foo);
+          const {h, render} = import("/preact.standalone.module.js");
+          const out = sub({a: 3, b: 4}, 0);
+          const html = out.html;
+          console.log(html);
       </script>
       <script type="renkon-jsx" style="height: 100px">
         <div>{html}</div>
       </script>
     </div>
     <script type="module">
-      import {view} from "./dist/renkon.js";
+      import {view} from "./dist/renkon-web.js";
       view();
     </script>
   </body>

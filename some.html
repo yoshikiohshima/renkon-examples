@@ -9,12 +9,24 @@
             const e1 = Events.timer(2000);
             const e2 = Events.timer(1000);
 
-            const e = Events.some(e1, e2, Events.timer(500) + 100);
-            console.log(e);
+            function f({input}, _types = {input: "Event"}) {
+                const x = input;
+                console.log(input);
+                return {x};
+            }
+
+            const component = Renkon.component(f);
+
+            const e3 = Behaviors.timer(500) + 100;
+
+            const some = Events.some(e1, e2, e3);
+
+            const {x} = component({input: some}, 0);
+            console.log("x", x);
         </script>
     </div>
     <script type="module">
-      import {view} from "./dist/renkon.js";
+      import {view} from "./dist/renkon-web.js";
       view();
     </script>
   </body>

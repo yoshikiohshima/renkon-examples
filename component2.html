@@ -8,8 +8,8 @@
       <script type="reactive">
           const {h, render} = import("/preact.standalone.module.js");
 
-          const {aComponent} = import("../component2.js");
-          const component = Renkon.component(aComponent);
+          const {foo} = import("../component2.js");
+          const component = Renkon.component(foo);
 
           const instances = [2, 3].map((m, i) => {
               return component({a: i, multiplier: m, h}, `${i}`);
@@ -21,7 +21,7 @@
       </script>
     </div>
     <script type="module">
-      import {view} from "./dist/renkon.js";
+      import {view} from "./dist/renkon-web.js";
       view();
     </script>
   </body>
